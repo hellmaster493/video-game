@@ -7,11 +7,12 @@
   var canvas = document.getElementById('game');
 
   PP.Save.load();
-  PP.Render.init(canvas);
+  PP.Scene.init(canvas);
   PP.Input.init(canvas);
+  PP.World.build(1337);          // a world exists before the first shift, for the menu
   PP.UI.init();
+  document.getElementById('boot').classList.add('hidden');
 
-  // first gesture anywhere unlocks WebAudio (browser policy)
   ['pointerdown', 'keydown', 'touchstart'].forEach(function (ev) {
     window.addEventListener(ev, function once() {
       PP.Audio.unlock();
@@ -19,8 +20,7 @@
     });
   });
 
-  var last = performance.now();
-  var hudT = 0;
+  var last = performance.now(), hudT = 0;
 
   function frame(now) {
     var dt = Math.min(0.05, (now - last) / 1000);
@@ -30,12 +30,15 @@
 
     var g = PP.Game;
     if (g.running && !g.paused && !g.over) g.update(dt);
-    if (g.player) PP.Render.draw(g, dt);
+    if (g.player && PP.Scene.ready) {
+      PP.Scene.update(g, dt);
+      PP.Scene.render();
+    }
 
     if (g.running) {
       hudT -= dt;
       if (hudT <= 0) { hudT = 0.08; PP.UI.refreshHud(g); }
-      if (PP.UI.mapOpen) PP.Render.minimap(g, PP.UI.el.bigmapCv, true);
+      if (PP.UI.mapOpen) PP.Minimap.draw(g, PP.UI.el.bigmapCv, true);
     }
 
     PP.Input.endFrame();
@@ -52,11 +55,8 @@
       else if (inGame) UI.setPause(!g.paused);
     }
     if (!inGame) return;
-
     if (In.hit('Tab') && !UI.wheelOpen) UI.toggleMap(!UI.mapOpen);
-
     if (In.hit('c')) UI.toggleWheel(!UI.wheelOpen);
-
     if (UI.wheelOpen) {
       for (var i = 0; i < PP.EMOTES.length; i++) {
         if (In.hit(PP.EMOTES[i].key)) { UI.doEmote(i); break; }
@@ -65,5 +65,5 @@
   }
 
   requestAnimationFrame(frame);
-  window.PPGame = PP;   // handy for poking at things from the console
+  window.PPGame = PP;
 })();

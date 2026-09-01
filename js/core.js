@@ -41,8 +41,11 @@ PP.rng = function (seed) {
 /* ── input ───────────────────────────────────────────────── */
 PP.Input = {
   keys: {}, pressed: {},
-  mouse: { x: 0, y: 0, wx: 0, wy: 0, l: false, r: false, lHit: false, rHit: false },
+  mouse: { x: 0, y: 0, l: false, r: false, lHit: false, rHit: false },
+  look: { dx: 0, dy: 0 },
+  sens: 0.0022,
   touch: { active: false, mx: 0, my: 0, sprint: false, interact: false },
+  locked: false, wantLock: false,
   _blocked: false,
 
   init: function (canvas) {
@@ -60,13 +63,27 @@ PP.Input = {
     window.addEventListener('blur', function () { self.keys = {}; });
 
     canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+
+    // ── pointer lock: the game is mouse-look, so the cursor has to go away ──
+    document.addEventListener('pointerlockchange', function () {
+      self.locked = document.pointerLockElement === canvas;
+      document.body.classList.toggle('locked', self.locked);
+    });
     canvas.addEventListener('mousemove', function (e) {
       var r = canvas.getBoundingClientRect();
       self.mouse.x = e.clientX - r.left;
       self.mouse.y = e.clientY - r.top;
+      // pointer lock is the normal path; dragging is the fallback when a
+      // browser refuses it, so the game never becomes unplayable
+      if (!self._blocked && (self.locked || (self.wantLock && (self.mouse.l || self.mouse.r)))) {
+        self.look.dx += e.movementX || 0;
+        self.look.dy += e.movementY || 0;
+      }
     });
     canvas.addEventListener('mousedown', function (e) {
       if (self._blocked) return;
+      // ask for the lock, but never swallow the click that asked for it
+      if (self.wantLock && !self.locked) self.lock(canvas);
       if (e.button === 0) { self.mouse.l = true; self.mouse.lHit = true; }
       if (e.button === 2) { self.mouse.r = true; self.mouse.rHit = true; }
     });
@@ -74,7 +91,16 @@ PP.Input = {
       if (e.button === 0) self.mouse.l = false;
       if (e.button === 2) self.mouse.r = false;
     });
+    this.canvas = canvas;
     this.initTouch();
+  },
+
+  lock: function (canvas) {
+    var el = canvas || this.canvas;
+    if (el && el.requestPointerLock) { try { el.requestPointerLock(); } catch (e) {} }
+  },
+  unlock: function () {
+    if (document.exitPointerLock) { try { document.exitPointerLock(); } catch (e) {} }
   },
 
   initTouch: function () {
@@ -130,6 +156,7 @@ PP.Input = {
     this.pressed = {};
     this.mouse.lHit = this.mouse.rHit = false;
     this.touch.interact = false;
+    this.look.dx = this.look.dy = 0;
   }
 };
 
@@ -208,6 +235,11 @@ PP.Audio = {
   roar:   function () { this.tone(150, 0.85, 'sawtooth', 0.20, 44); this.noise(0.7, 240, 0.18, 0.7); },
   vent:   function () { this.noise(0.35, 180, 0.13, 0.9); },
   coin:   function () { this.tone(1180, 0.09, 'square', 0.06, 1560); },
+  crash:  function () {
+    this.noise(0.9, 5200, 0.20, 0.4);
+    this.noise(0.6, 2600, 0.14, 0.5);
+    this.tone(1400, 0.5, 'square', 0.05, 700);
+  },
 
   /** low ambience whose pitch/volume rises with danger */
   drone: function (level) {

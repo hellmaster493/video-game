@@ -1,34 +1,31 @@
 /* ═══════════════════════════════════════════════════════════
-   ui.js — menus, HUD, chat wheel, shop, maps, end card
+   ui.js — menus, HUD, chat wheel, shop, maps, end card.
+   The cast screen renders real 3D portraits of every character.
    ═══════════════════════════════════════════════════════════ */
 'use strict';
 
 PP.UI = {
-  el: {}, wheelOpen: false, mapOpen: false, abilityPill: null,
+  el: {}, wheelOpen: false, mapOpen: false, abilityPill: null, pr: null,
 
   init: function () {
     var $ = function (id) { return document.getElementById(id); };
     this.el = {
       menu: $('menu'), hud: $('hud'), pause: $('pause'), end: $('endcard'),
       wheel: $('wheel'), bigmap: $('bigmap'), bigmapCv: $('bigmap-canvas'),
-      minimap: $('minimap'), touch: $('touch'),
+      minimap: $('minimap'), touch: $('touch'), cross: $('crosshair'),
       objText: $('obj-text'), objFill: $('obj-fill'),
       roleName: $('hud-role-name'), tokens: $('hud-tokens'), clock: $('hud-clock'),
       stam: $('stamina-fill'), fear: $('fear-fill'),
-      handL: $('hand-l'), handR: $('hand-r'),
+      handL: $('hand-l'), handR: $('hand-r'), hands: $('hands'),
       prompt: $('prompt'), promptText: $('prompt-text'),
       toasts: $('toasts'), sub: $('subtitle'), subWho: $('sub-who'), subLine: $('sub-line'),
-      name: $('playername')
+      name: $('playername'), flash: $('flash'), lockhint: $('lockhint')
     };
 
-    // an ability chip, built here so index.html stays about layout
     var pill = document.createElement('div');
     pill.id = 'ability';
-    pill.style.cssText = 'display:flex;align-items:center;gap:8px;background:rgba(14,18,28,.92);' +
-      'border:1px solid rgba(255,255,255,.10);border-radius:9px;padding:6px 11px;width:214px;' +
-      'box-shadow:0 4px 18px rgba(0,0,0,.45);white-space:nowrap';
-    pill.innerHTML = '<kbd>Q</kbd><span style="flex:1;font-size:11px" id="ability-name">—</span>' +
-      '<span id="ability-cd" style="font-size:11px;color:#ffc94d;margin-left:6px">READY</span>';
+    pill.innerHTML = '<kbd>Q</kbd><span id="ability-name">—</span>' +
+                     '<span id="ability-cd">READY</span>';
     document.querySelector('.hud-bottom').appendChild(pill);
     this.abilityPill = pill;
 
@@ -37,12 +34,39 @@ PP.UI = {
     this.el.name.value = PP.Save.data.name || '';
   },
 
-  /* ═════════ menu construction ═════════ */
-  buildMenu: function () {
-    this.buildModes();
-    this.buildCast();
-    this.buildShop();
+  /* ═════════ 3D portraits ═════════ */
+  portrait: function (canvas, rig, opts) {
+    if (!this.pr) {
+      this.pr = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      this.pr.setPixelRatio(2);
+      this.pr.setSize(180, 220);
+      this.pr.outputEncoding = THREE.sRGBEncoding;
+      this.pr.toneMapping = THREE.ACESFilmicToneMapping;
+      this.pr.toneMappingExposure = 0.95;
+      this.prScene = new THREE.Scene();
+      this.prScene.environment = PP.Tex.envMap(this.pr);
+      this.prCam = new THREE.PerspectiveCamera(30, 180 / 220, 1, 900);
+      var key = new THREE.DirectionalLight(0xfff0d8, 1.35); key.position.set(60, 90, 80);
+      var rim = new THREE.DirectionalLight(0x6f9cff, 0.75); rim.position.set(-70, 40, -60);
+      var fill = new THREE.HemisphereLight(0x4a5a78, 0x14171d, 0.45);
+      this.prScene.add(key); this.prScene.add(rim); this.prScene.add(fill);
+    }
+    var s = this.prScene;
+    while (s.children.length > 3) s.remove(s.children[3]);
+    rig.root.rotation.y = opts.spin == null ? -0.5 : opts.spin;
+    s.add(rig.root);
+    var h = rig.height, d = h * 2.45 * (rig.portraitScale || 1);
+    this.prCam.position.set(0, h * (0.60 + (rig.portraitLift || 0)), d);
+    this.prCam.lookAt(0, h * 0.52, 0);
+    this.pr.render(s, this.prCam);
+    var c = canvas.getContext('2d');
+    c.clearRect(0, 0, canvas.width, canvas.height);
+    c.drawImage(this.pr.domElement, 0, 0, canvas.width, canvas.height);
+    s.remove(rig.root);
   },
+
+  /* ═════════ menu construction ═════════ */
+  buildMenu: function () { this.buildModes(); this.buildCast(); this.buildShop(); },
 
   buildModes: function () {
     var host = document.getElementById('mode-list'), S = PP.Save.data, self = this;
@@ -60,51 +84,88 @@ PP.UI = {
     });
   },
 
-  buildCast: function () {
-    var host = document.getElementById('cast-list'), S = PP.Save.data, self = this;
-    host.innerHTML = '';
-    var monsterMode = S.mode === 'monster';
+  monsterCard: function (m, selected, onPick) {
+    var self = this;
+    var d = document.createElement('div');
+    d.className = 'card mon' + (selected ? ' sel' : '');
+    var cv = document.createElement('canvas');
+    cv.width = 180; cv.height = 220;
+    cv.className = 'shot';
+    d.appendChild(cv);
+    var info = document.createElement('div');
+    info.className = 'cardinfo';
+    info.innerHTML = '<h4>' + m.name + '</h4><p>' + m.blurb + '</p>' +
+      '<span class="perk">' + m.specialName + '</span>' +
+      '<p class="special">' + m.specialText + '</p>' +
+      '<div class="stats">' +
+        '<span>speed<b>' + m.speed + '</b></span>' +
+        '<span>reach<b>' + m.reach + '</b></span>' +
+        '<span>ears<b>' + m.hearing + '</b></span>' +
+        '<span>vents<b>' + (m.vent ? 'yes' : 'no') + '</b></span>' +
+      '</div>';
+    d.appendChild(info);
+    // build the model once, snapshot it, then throw it away
+    var rig = PP.Models.monster(m);
+    this.portrait(cv, rig, { spin: m.build === 'pj' ? -0.75 : -0.55 });
+    d.onclick = function () { onPick(); PP.Audio.ui(); };
+    return d;
+  },
 
-    if (monsterMode) {
+  buildCast: function () {
+    var host = document.getElementById('tab-cast'), S = PP.Save.data, self = this;
+    host.innerHTML = '';
+    if (!S.monster) S.monster = 'huggy';
+    if (!S.hunter) S.hunter = 'huggy';
+
+    function section(title, sub) {
+      var h = document.createElement('div');
+      h.className = 'section';
+      h.innerHTML = '<h3>' + title + '</h3><p>' + sub + '</p>';
+      host.appendChild(h);
+      var grid = document.createElement('div');
+      grid.className = 'cast';
+      host.appendChild(grid);
+      return grid;
+    }
+
+    if (S.mode === 'monster') {
+      var g1 = section('You play as', 'Six toys, six completely different ways to hunt.');
+      g1.classList.add('wide');
       PP.MONSTERS.forEach(function (m) {
-        var unlocked = S.tokens >= m.unlockAt || S.unlocked[m.id];
-        var d = document.createElement('div');
-        d.className = 'card' + (S.monster === m.id ? ' sel' : '') + (unlocked ? '' : ' locked');
-        var cv = document.createElement('canvas');
-        cv.width = 76; cv.height = 84;
-        d.appendChild(cv);
-        var info = document.createElement('div');
-        info.innerHTML = '<h4>' + m.name + '</h4><p>' + m.blurb + '</p>' +
-          '<span class="perk">reach ' + m.reach + ' · speed ' + m.speed + '</span>' +
-          (unlocked ? '' : '<span class="lock">🔒 ' + m.unlockAt + '</span>');
-        d.appendChild(info);
-        self.previewMonster(cv, m.look);
-        d.onclick = function () {
-          if (!unlocked) { self.toast('Bank ' + m.unlockAt + ' tokens to unlock ' + m.name + '.', 'bad'); return; }
-          S.monster = m.id; PP.Save.flush(); PP.Audio.ui(); self.buildCast();
-        };
-        host.appendChild(d);
+        g1.appendChild(self.monsterCard(m, S.monster === m.id, function () {
+          S.monster = m.id; PP.Save.flush(); self.buildCast();
+        }));
       });
-      if (!S.monster) S.monster = 'snugglepaw';
       return;
     }
 
+    var g0 = section('Your role', 'Each one changes how you play a shift.');
     PP.ROLES.forEach(function (r) {
       var d = document.createElement('div');
       d.className = 'card' + (S.role === r.id ? ' sel' : '');
       var cv = document.createElement('canvas');
-      cv.width = 76; cv.height = 84;
+      cv.width = 180; cv.height = 220; cv.className = 'shot';
       d.appendChild(cv);
       var info = document.createElement('div');
+      info.className = 'cardinfo';
       info.innerHTML = '<h4>' + r.name + '</h4><p>' + r.blurb + '</p>' +
                        '<span class="perk">' + r.perk + '</span>';
       d.appendChild(info);
-      self.previewRole(cv, r.look);
-      d.onclick = function () {
-        S.role = r.id; PP.Save.flush(); PP.Audio.ui(); self.buildCast();
-      };
-      host.appendChild(d);
+      self.portrait(cv, PP.Models.human(r.look), { spin: -0.5 });
+      d.onclick = function () { S.role = r.id; PP.Save.flush(); PP.Audio.ui(); self.buildCast(); };
+      g0.appendChild(d);
     });
+
+    if (S.mode === 'night') {
+      var g2 = section('Who is awake down there',
+                       'Pick the toy that hunts you. They are not reskins — each one hunts differently.');
+      g2.classList.add('wide');
+      PP.MONSTERS.forEach(function (m) {
+        g2.appendChild(self.monsterCard(m, S.hunter === m.id, function () {
+          S.hunter = m.id; PP.Save.flush(); self.buildCast();
+        }));
+      });
+    }
   },
 
   buildShop: function () {
@@ -131,72 +192,14 @@ PP.UI = {
     var old = document.getElementById('shop-balance');
     if (old) old.parentNode.removeChild(old);
     var bal = document.createElement('p');
-    bal.id = 'shop-balance';
-    bal.className = 'hint';
+    bal.id = 'shop-balance'; bal.className = 'hint';
     bal.innerHTML = 'Balance: <b style="color:#ffc94d">' + S.tokens + '</b> tokens';
     host.parentNode.insertBefore(bal, host);
   },
 
-  /* small portraits for the cast cards */
-  previewRole: function (cv, look) {
-    var c = cv.getContext('2d');
-    c.translate(38, 52); c.scale(1.5, 1.5);
-    c.fillStyle = 'rgba(0,0,0,.3)';
-    c.beginPath(); c.ellipse(0, 14, 13, 5, 0, 0, 6.2832); c.fill();
-    c.fillStyle = '#232833'; c.fillRect(-8, 2, 6, 12); c.fillRect(2, 2, 6, 12);
-    c.fillStyle = look.skin; c.fillRect(-13, -6, 5, 13); c.fillRect(8, -6, 5, 13);
-    c.fillStyle = look.body;
-    c.beginPath();
-    if (c.roundRect) c.roundRect(-11, -12, 22, 22, 7); else c.rect(-11, -12, 22, 22);
-    c.fill();
-    c.fillStyle = look.trim; c.fillRect(-11, -3, 22, 3);
-    c.fillStyle = look.skin;
-    c.beginPath(); c.arc(0, -12, 8.5, 0, 6.2832); c.fill();
-    c.fillStyle = '#1c1a17';
-    c.beginPath(); c.arc(-3, -13, 1.5, 0, 6.2832); c.fill();
-    c.beginPath(); c.arc(3, -13, 1.5, 0, 6.2832); c.fill();
-    PP.Render.drawHat(c, look.hat, look.hatCol);
-  },
-
-  previewMonster: function (cv, L) {
-    var c = cv.getContext('2d');
-    c.translate(38, 58); c.scale(1.25, 1.25);
-    c.fillStyle = 'rgba(0,0,0,.3)';
-    c.beginPath(); c.ellipse(0, 16, 16, 6, 0, 0, 6.2832); c.fill();
-    c.strokeStyle = L.fur; c.lineWidth = 6; c.lineCap = 'round';
-    for (var s = -1; s <= 1; s += 2) {
-      c.beginPath(); c.moveTo(s * 12, -6);
-      c.quadraticCurveTo(s * 24, 2, s * 18, 12); c.stroke();
-    }
-    c.beginPath(); c.moveTo(-7, 6); c.lineTo(-7, 16); c.stroke();
-    c.beginPath(); c.moveTo(7, 6); c.lineTo(7, 16); c.stroke();
-    c.lineCap = 'butt';
-    c.fillStyle = L.fur;
-    c.beginPath();
-    if (c.roundRect) c.roundRect(-14, -16, 28, 28, 11); else c.rect(-14, -16, 28, 28);
-    c.fill();
-    c.fillStyle = L.belly;
-    c.beginPath(); c.ellipse(0, -1, 8, 10, 0, 0, 6.2832); c.fill();
-    c.fillStyle = L.fur;
-    c.beginPath(); c.arc(0, -22, 13, 0, 6.2832); c.fill();
-    c.fillStyle = L.eye;
-    c.beginPath(); c.arc(-5, -25, 4.2, 0, 6.2832); c.fill();
-    c.beginPath(); c.arc(5, -25, 4.2, 0, 6.2832); c.fill();
-    c.fillStyle = '#0a0a0a';
-    c.beginPath(); c.arc(-5, -26, 1.9, 0, 6.2832); c.fill();
-    c.beginPath(); c.arc(5, -26, 1.9, 0, 6.2832); c.fill();
-    if (L.teeth) {
-      c.fillStyle = '#12080a';
-      c.beginPath(); c.ellipse(0, -17, 8, 4.5, 0, 0, 6.2832); c.fill();
-      c.fillStyle = '#fffdf2';
-      for (var i = -3; i <= 3; i++) c.fillRect(i * 2.2 - 0.8, -20.5, 1.7, 3.4);
-    }
-  },
-
-  /* ═════════ event wiring ═════════ */
+  /* ═════════ wiring ═════════ */
   bind: function () {
     var self = this, S = PP.Save.data;
-
     document.querySelectorAll('.tab').forEach(function (t) {
       t.onclick = function () {
         document.querySelectorAll('.tab').forEach(function (x) { x.classList.remove('active'); });
@@ -205,14 +208,13 @@ PP.UI = {
         document.getElementById('tab-' + t.dataset.tab).classList.add('active');
         PP.Audio.ui();
         if (t.dataset.tab === 'shop') self.buildShop();
+        if (t.dataset.tab === 'cast') self.buildCast();
       };
     });
-
     this.el.name.oninput = function () {
       S.name = this.value.trim().slice(0, 14) || 'New Hire';
       PP.Save.flush();
     };
-
     document.getElementById('btn-start').onclick = function () { self.startGame(); };
     document.getElementById('btn-resume').onclick = function () { self.setPause(false); };
     document.getElementById('btn-quit').onclick = function () { self.toMenu(); };
@@ -222,7 +224,6 @@ PP.UI = {
     document.getElementById('btn-menu').onclick = function () {
       self.el.end.classList.add('hidden'); self.toMenu();
     };
-
     if ('ontouchstart' in window) this.el.touch.classList.remove('hidden');
   },
 
@@ -231,21 +232,28 @@ PP.UI = {
     PP.Audio.unlock();
     S.name = (this.el.name.value.trim() || 'New Hire').slice(0, 14);
     PP.Save.flush();
+    var stage = document.getElementById('stage');
+    stage.scrollTop = 0; stage.scrollLeft = 0;
+    this.el.menu.scrollTop = 0;
     this.el.menu.classList.add('hidden');
     this.el.hud.classList.remove('hidden');
     this.el.end.classList.add('hidden');
     this.clearToasts();
-    PP.Game.start({ mode: S.mode, role: S.role, monster: S.monster || 'snugglepaw' });
+    PP.Game.start({ mode: S.mode, role: S.role, monster: S.monster || 'huggy', hunter: S.hunter || 'huggy' });
+    PP.Input.wantLock = true;
+    PP.Input.lock();
     this.refreshHud(PP.Game);
     var g = PP.Game;
-    this.toast(g.mode === 'monster' ? 'Hunt them down. LMB to lunge.'
-             : g.mode === 'night' ? 'Torch on. Find five nodes.'
+    this.toast(g.mode === 'monster' ? 'Hunt them down. Left-click to strike.'
+             : g.mode === 'night' ? 'Torch on. Five nodes. Do not get cornered.'
              : 'Take your time. Say hello to people.');
   },
 
   toMenu: function () {
     PP.Game.running = false; PP.Game.paused = false;
     PP.Audio.stopDrone();
+    PP.Input.wantLock = false;
+    PP.Input.unlock();
     this.el.pause.classList.add('hidden');
     this.el.hud.classList.add('hidden');
     this.el.menu.classList.remove('hidden');
@@ -256,9 +264,10 @@ PP.UI = {
     PP.Game.paused = v;
     this.el.pause.classList.toggle('hidden', !v);
     PP.Input.block(v);
+    if (v) PP.Input.unlock(); else PP.Input.lock();
   },
 
-  /* ═════════ per-frame HUD ═════════ */
+  /* ═════════ HUD ═════════ */
   refreshHud: function (g) {
     if (!g.player) return;
     var isMonster = g.mode === 'monster';
@@ -271,35 +280,33 @@ PP.UI = {
     if (g.player.hands) {
       this.el.handL.classList.toggle('on', g.player.hands.l.state !== 'idle');
       this.el.handR.classList.toggle('on', g.player.hands.r.state !== 'idle');
-      document.getElementById('hands').style.display = '';
-    } else {
-      document.getElementById('hands').style.display = 'none';
-    }
+      this.el.hands.style.display = '';
+    } else this.el.hands.style.display = 'none';
 
     var ab = g.player.ability;
-    if (ab && !isMonster) {
+    if (ab && g.player.abilityInfo) {
       this.abilityPill.style.display = '';
       document.getElementById('ability-name').textContent = g.player.abilityInfo().name;
-      document.getElementById('ability-cd').textContent =
-        ab.ready ? 'READY' : Math.ceil(ab.cd) + 's';
-      document.getElementById('ability-cd').style.color = ab.ready ? '#ffc94d' : '#93a0b8';
-    } else {
-      this.abilityPill.style.display = 'none';
-    }
-    PP.Render.minimap(g, this.el.minimap, false);
+      var cd = document.getElementById('ability-cd');
+      cd.textContent = ab.ready ? 'READY' : Math.ceil(ab.cd) + 's';
+      cd.style.color = ab.ready ? '#ffc94d' : '#93a0b8';
+    } else this.abilityPill.style.display = 'none';
+
+    this.el.cross.classList.toggle('hidden', PP.Scene.thirdPerson && isMonster);
+    this.el.flash.style.opacity = Math.max(0, Math.min(1, g.flash));
+    this.el.lockhint.classList.toggle('hidden', PP.Input.locked || !g.running || g.paused);
+    PP.Minimap.draw(g, this.el.minimap, false);
   },
 
   objective: function (text, pct) {
     this.el.objText.textContent = text;
     this.el.objFill.style.width = Math.round(pct * 100) + '%';
   },
-
   prompt: function (text) {
     if (!text) { this.el.prompt.classList.add('hidden'); return; }
     this.el.promptText.textContent = text;
     this.el.prompt.classList.remove('hidden');
   },
-
   toast: function (text, kind) {
     var d = document.createElement('div');
     d.className = 'toast' + (kind ? ' ' + kind : '');
@@ -313,7 +320,6 @@ PP.UI = {
     while (this.el.toasts.children.length > 5) this.el.toasts.removeChild(this.el.toasts.firstChild);
   },
   clearToasts: function () { this.el.toasts.innerHTML = ''; },
-
   subtitle: function (who, line) {
     var el = this.el.sub;
     this.el.subWho.textContent = who;
@@ -329,6 +335,7 @@ PP.UI = {
     var w = this.el.wheel;
     w.classList.toggle('hidden', !open);
     PP.Input.block(open);
+    if (open) PP.Input.unlock(); else if (PP.Game.running && !PP.Game.paused) PP.Input.lock();
     if (!open) { w.innerHTML = ''; return; }
     PP.Audio.ui();
 
@@ -361,7 +368,6 @@ PP.UI = {
     if (e.kind === 'chat') {
       PP.Audio.ui();
       g.makeNoise(g.player.x, g.player.y, 200, g.player);
-      // nearby staff answer you — cheap, but it sells the roleplay
       g.npcs.forEach(function (n) {
         if (n.caught) return;
         if (PP.U.dist(n.x, n.y, g.player.x, g.player.y) < 300 && PP.U.chance(0.65)) {
@@ -376,19 +382,18 @@ PP.UI = {
     this.toggleWheel(false);
   },
 
-  /* ═════════ big map ═════════ */
   toggleMap: function (open) {
     this.mapOpen = open;
     this.el.bigmap.classList.toggle('hidden', !open);
-    if (open) PP.Render.minimap(PP.Game, this.el.bigmapCv, true);
+    if (open) { PP.Input.unlock(); PP.Minimap.draw(PP.Game, this.el.bigmapCv, true); }
+    else if (PP.Game.running && !PP.Game.paused) PP.Input.lock();
   },
 
-  /* ═════════ end card ═════════ */
   endCard: function (win, reason, rows, g) {
     var self = this;
-    document.getElementById('end-title').textContent =
-      win ? (g.mode === 'monster' ? 'ALL ACCOUNTED FOR' : 'CLOCKED OUT ALIVE') : 'SHIFT OVER';
-    document.getElementById('end-title').style.color = win ? '#49d67f' : '#e6404f';
+    var t = document.getElementById('end-title');
+    t.textContent = win ? (g.mode === 'monster' ? 'ALL ACCOUNTED FOR' : 'CLOCKED OUT ALIVE') : 'SHIFT OVER';
+    t.style.color = win ? '#49d67f' : '#e6404f';
     document.getElementById('end-body').textContent = reason;
     var host = document.getElementById('end-payout');
     host.innerHTML = '';

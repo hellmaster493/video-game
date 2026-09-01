@@ -11,9 +11,14 @@
 
 <div id="stage">
   <canvas id="game"></canvas>
+  <div id="flash"></div>
+  <div id="grain"></div>
+  <div id="vig"></div>
 
   <!-- ══════════════ HUD ══════════════ -->
   <div id="hud" class="hidden">
+    <div id="crosshair"><i></i><i></i><i></i><i></i></div>
+
     <div class="hud-top">
       <div class="pill" id="hud-role"><span class="dot"></span><span id="hud-role-name">Worker</span></div>
       <div class="pill" id="hud-tokens"><b>0</b> tokens</div>
@@ -26,7 +31,7 @@
       <div class="obj-bar"><i id="obj-fill"></i></div>
     </div>
 
-    <canvas id="minimap" width="200" height="150"></canvas>
+    <canvas id="minimap" width="220" height="160"></canvas>
 
     <div class="hud-bottom">
       <div class="meter" title="Stamina"><i id="stamina-fill"></i></div>
@@ -40,12 +45,11 @@
     <div id="prompt" class="hidden"><kbd>E</kbd> <span id="prompt-text"></span></div>
     <div id="toasts"></div>
     <div id="subtitle" class="hidden"><b id="sub-who"></b><span id="sub-line"></span></div>
+    <div id="lockhint" class="hidden">Click to look around</div>
   </div>
 
-  <!-- ══════════════ CHAT / EMOTE WHEEL ══════════════ -->
   <div id="wheel" class="hidden"></div>
 
-  <!-- ══════════════ TOUCH CONTROLS ══════════════ -->
   <div id="touch" class="hidden">
     <div id="stick"><i></i></div>
     <div id="tbuttons">
@@ -77,10 +81,7 @@
         <button class="big" id="btn-start">ENTER THE FACTORY</button>
       </div>
 
-      <div class="tabpanel" id="tab-cast">
-        <p class="hint">Pick who you clock in as. Each role changes how you play.</p>
-        <div class="cast" id="cast-list"></div>
-      </div>
+      <div class="tabpanel" id="tab-cast"></div>
 
       <div class="tabpanel" id="tab-shop">
         <p class="hint">Spend Playtime Tokens earned on shift.</p>
@@ -89,22 +90,25 @@
 
       <div class="tabpanel" id="tab-help">
         <div class="help">
-          <div class="hrow"><kbd>W A S D</kbd><span>Move around the factory</span></div>
+          <div class="hrow"><kbd>W A S D</kbd><span>Walk &mdash; the mouse looks around</span></div>
           <div class="hrow"><kbd>Shift</kbd><span>Sprint &mdash; fast, loud, drains stamina</span></div>
-          <div class="hrow"><kbd>E</kbd><span>Interact: tasks, lockers, doors, NPCs</span></div>
+          <div class="hrow"><kbd>E</kbd><span>Interact: tasks, lockers, the lift, staff</span></div>
           <div class="hrow"><kbd>LMB</kbd><span>Fire the <b>red</b> GrabPack hand</span></div>
           <div class="hrow"><kbd>RMB</kbd><span>Fire the <b>blue</b> GrabPack hand</span></div>
+          <div class="hrow"><kbd>Q</kbd><span>Your role's ability</span></div>
           <div class="hrow"><kbd>C</kbd><span>Chat &amp; emote wheel</span></div>
-          <div class="hrow"><kbd>F</kbd><span>Toggle flashlight</span></div>
-          <div class="hrow"><kbd>Tab</kbd><span>Big map</span></div>
-          <div class="hrow"><kbd>Esc</kbd><span>Pause</span></div>
-          <p class="hint">Power nodes need <b>both</b> hands: grab the red socket with the
-          red hand and the blue socket with the blue hand at the same time.</p>
+          <div class="hrow"><kbd>F</kbd><span>Torch</span></div>
+          <div class="hrow"><kbd>V</kbd><span>First person / third person</span></div>
+          <div class="hrow"><kbd>Tab</kbd><span>Full factory map</span></div>
+          <div class="hrow"><kbd>Esc</kbd><span>Pause &mdash; also frees the mouse</span></div>
+          <p class="hint">A power node has a red socket and a blue socket, and only charges while
+          <b>both</b> hands are latched on at once. Aim with the crosshair and fire one hand at each.
+          You cannot move far while pinned to it &mdash; that is the point.</p>
         </div>
       </div>
 
-      <p class="fineprint">An original fan-made homage. Not affiliated with, or endorsed by,
-      any existing toy-factory horror franchise.</p>
+      <p class="fineprint">A fan-made homage. Not affiliated with, or endorsed by, MOB Games
+      or any other rights holder. All models, code and art here were made for this project.</p>
     </div>
   </div>
 
@@ -127,16 +131,27 @@
   </div>
 
   <div id="bigmap" class="screen hidden">
-    <canvas id="bigmap-canvas" width="900" height="620"></canvas>
+    <canvas id="bigmap-canvas" width="980" height="660"></canvas>
     <p class="hint">Tab to close</p>
+  </div>
+
+  <div id="boot" class="screen">
+    <div class="menu-inner narrow">
+      <h2>PLAYTIME FACTORY</h2>
+      <p class="hint">Building the factory&hellip;</p>
+    </div>
   </div>
 </div>
 
+<script src="vendor/three.min.js"></script>
 <script src="js/core.js"></script>
 <script src="js/roles.js"></script>
+<script src="js/textures.js"></script>
+<script src="js/models.js"></script>
 <script src="js/world.js"></script>
+<script src="js/minimap.js"></script>
 <script src="js/entities.js"></script>
-<script src="js/render.js"></script>
+<script src="js/scene.js"></script>
 <script src="js/game.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/main.js"></script>

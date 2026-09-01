@@ -1,20 +1,18 @@
 /* ═══════════════════════════════════════════════════════════
-   game.js — the shift itself: modes, objectives, AI director,
-   interaction, scoring, win and loss.
+   game.js — the shift itself: modes, objectives, the AI
+   director, interaction, scoring, win and loss.
    ═══════════════════════════════════════════════════════════ */
 'use strict';
 
 PP.Game = {
   running: false, paused: false, over: false,
   mode: 'roam', player: null, npcs: [], monsters: [],
-  cam: { x: 0, y: 0 },
   clock: 0, shift: 1,
-  darkness: 0.4, power: true,
+  power: true,
   flares: [], noises: [], seen: {},
-  slow: 0, slip: 0, flash: 0,
+  slow: 0, slip: 0, flash: 0, reveal: 0,
   earned: 0, tasksDone: 0, nodesDone: 0, caughtCount: 0,
-  saveData: null,
-  hint: '', promptProp: null,
+  saveData: null, promptProp: null,
 
   /* ═════════ start ═════════ */
   start: function (opts) {
@@ -24,7 +22,7 @@ PP.Game = {
     this.clock = 0; this.earned = 0; this.tasksDone = 0;
     this.nodesDone = 0; this.caughtCount = 0;
     this.flares = []; this.noises = []; this.seen = {};
-    this.slow = 0; this.slip = 0; this.flash = 0;
+    this.slow = 0; this.slip = 0; this.flash = 0; this.reveal = 0;
     this.npcs = []; this.monsters = [];
     this.shift = (S.shifts || 0) + 1;
 
@@ -35,58 +33,63 @@ PP.Game = {
     var role = PP.getRole(opts.role);
 
     if (this.mode === 'monster') {
-      var mdef = PP.getMonster(opts.monster || 'snugglepaw');
-      var vh = PP.World.room('venthub');
-      this.player = new MonsterPlayer(vh.cx, vh.cy, mdef, S.name || 'It');
+      var mdef = PP.getMonster(opts.monster || 'huggy');
+      var vh = PP.World.room('venthub'), vs = PP.World.spotIn(vh, 1);
+      this.player = new MonsterPlayer(vs.x, vs.y, mdef, S.name || 'It');
       this.player.grabLen = 0;
-      this.darkness = 0.5; this.power = true;
-      this.spawnStaff(6, true);
+      var mi = this.player.abilityInfo();
+      this.player.ability = { cd: 0, max: mi.cd, ready: true };
+      this.power = true;
+      this.spawnStaff(6);
     } else {
-      this.player = new Player(lobby.cx, lobby.cy + 120, role, S.name || 'New Hire');
+      var s = PP.World.spotIn(lobby, 2);
+      this.player = new Player(s.x, s.y, role, S.name || 'New Hire');
       this.player.gold = !!S.owned.pack_gold;
       if (this.player.gold) this.player.grabLen += 90;
       var info = this.player.abilityInfo();
       this.player.ability = { cd: 0, max: info.cd, ready: true };
       this.player.saves = 1;
       if (this.mode === 'night') {
-        this.darkness = 0.82; this.power = false;
-        this.spawnStaff(3, false);
-        this.spawnMonster(PP.getMonster('snugglepaw'), 'warehouse');
+        this.power = false;
+        this.spawnStaff(3);
+        this.spawnMonster(PP.getMonster(opts.hunter || 'huggy'), 'warehouse');
       } else {
-        this.darkness = 0.3; this.power = true;
-        this.player.torch = false;      // the lights are on; F turns it back on
-        this.spawnStaff(7, false);
+        this.power = true;
+        this.player.torch = false;
+        this.spawnStaff(7);
       }
     }
-    this.cam.x = this.player.x; this.cam.y = this.player.y;
+
+    PP.Scene.build(this);
+    PP.Scene.setMood(this);
+    PP.Scene.thirdPerson = (this.mode === 'monster');
     PP.Audio.unlock();
     this.updateObjective();
   },
 
-  /** Each power node gets a red and a blue socket — one per GrabPack hand. */
+  /** Each node gets a red and a blue socket bolted to its panel. */
   addSockets: function () {
-    var add = [];
+    var M = PP.M, add = [];
     PP.World.props.forEach(function (p) {
       if (p.kind !== 'node') return;
       p.sockets = [];
-      [['l', -46], ['r', 46]].forEach(function (s) {
-        var sk = { kind: 'socket', x: p.x + s[1], y: p.y - 6, rad: 14,
-                   side: s[0], node: p, heldBy: null, block: false };
+      [['l', -0.45], ['r', 0.45]].forEach(function (o) {
+        var sk = { kind: 'socket', x: p.x + o[1] * M, y: p.y + 0.30 * M, h: 1.15 * M,
+                   rad: 12, side: o[0], node: p, heldBy: null, block: false };
         p.sockets.push(sk); add.push(sk);
       });
     });
     add.forEach(function (s) { PP.World.addProp(s); });
   },
 
-  spawnStaff: function (n, workers) {
+  spawnStaff: function (n) {
     for (var i = 0; i < n; i++) {
       var r = PP.World.randomRoom();
       if (r.id === 'liftbay') r = PP.World.room('assembly');
       var s = PP.World.spotIn(r, 1);
       var look = PP.ROLES[i % PP.ROLES.length].look;
-      var npc = new Npc(s.x, s.y, PP.NPC_NAMES[(i * 3 + 1) % PP.NPC_NAMES.length],
-                        Object.assign({}, look));
-      this.npcs.push(npc);
+      this.npcs.push(new Npc(s.x, s.y, PP.NPC_NAMES[(i * 3 + 1) % PP.NPC_NAMES.length],
+                             Object.assign({}, look)));
     }
   },
 
@@ -101,13 +104,13 @@ PP.Game = {
   /* ═════════ per-frame ═════════ */
   update: function (dt) {
     if (!this.running || this.paused || this.over) return;
-    var In = PP.Input, U = PP.U, world = PP.World;
+    var In = PP.Input;
     this.clock += dt;
     if (this.slow > 0) this.slow -= dt;
     if (this.slip > 0) this.slip -= dt;
+    if (this.reveal > 0) this.reveal -= dt;
     if (this.flash > 0) this.flash -= dt * 2.2;
 
-    // decay noise pings and light flares
     for (var i = this.noises.length - 1; i >= 0; i--) {
       this.noises[i].t -= dt;
       if (this.noises[i].t <= 0) this.noises.splice(i, 1);
@@ -116,17 +119,7 @@ PP.Game = {
       this.flares[f].t -= dt;
       if (this.flares[f].t <= 0) this.flares.splice(f, 1);
     }
-    // expire decoys
-    for (var d = world.props.length - 1; d >= 0; d--) {
-      var pr = world.props[d];
-      if (pr.kind === 'decoy') {
-        pr.life -= dt;
-        if (pr.life <= 0) {
-          world.props.splice(d, 1);
-          this.monsters.forEach(function (m) { if (m.decoy === pr) m.decoy = null; });
-        }
-      }
-    }
+    this.tickTimedProps(dt);
 
     this.player.update(dt, this);
     for (var n = 0; n < this.npcs.length; n++) this.npcs[n].update(dt, this);
@@ -135,28 +128,42 @@ PP.Game = {
     this.tickNodes(dt);
     this.tickInteraction(dt);
     this.tickFear(dt);
-    this.tickCamera(dt);
     this.tickDirector(dt);
 
-    var room = world.roomAt(this.player.x, this.player.y);
+    var room = PP.World.roomAt(this.player.x, this.player.y);
     if (room && !this.seen[room.id]) {
       this.seen[room.id] = true;
       PP.UI.toast('Entered ' + room.name);
     }
 
-    if (In.hit('f') && this.player.torch !== undefined) {
-      this.player.torch = !this.player.torch;
-      PP.Audio.ui();
-    }
-    if (In.hit('q')) {
-      if (this.player.useAbility) { if (!this.player.useAbility(this)) PP.Audio.bad(); }
+    if (In.hit('f') && this.mode !== 'monster') { this.player.torch = !this.player.torch; PP.Audio.ui(); }
+    if (In.hit('v')) { PP.Scene.thirdPerson = !PP.Scene.thirdPerson; PP.Audio.ui(); }
+    if (In.hit('q') && this.player.useAbility && !this.player.useAbility(this)) PP.Audio.bad();
+  },
+
+  /** Decoys and gas clouds expire; gas also works on whoever stands in it. */
+  tickTimedProps: function (dt) {
+    var props = PP.World.props, pl = this.player, self = this;
+    for (var d = props.length - 1; d >= 0; d--) {
+      var pr = props[d];
+      if (pr.kind !== 'decoy' && pr.kind !== 'gas') continue;
+      pr.life -= dt;
+      if (pr.kind === 'gas' && this.mode !== 'monster'
+          && PP.U.dist(pl.x, pl.y, pr.x, pr.y) < 46) {
+        pl.gassed = 1.2;
+        pl.fear = Math.min(1, pl.fear + dt * 0.35);
+      }
+      if (pr.life <= 0) {
+        if (pr.obj && pr.obj.parent) pr.obj.parent.remove(pr.obj);
+        props.splice(d, 1);
+        this.monsters.forEach(function (m) { if (m.decoy === pr) m.decoy = null; });
+      }
     }
   },
 
-  /* Power nodes charge only while both hands hold their matching sockets. */
   tickNodes: function (dt) {
     if (this.mode === 'monster') return;
-    var props = PP.World.props, self = this;
+    var props = PP.World.props;
     for (var i = 0; i < props.length; i++) {
       var p = props[i];
       if (p.kind !== 'node' || p.done || !p.sockets) continue;
@@ -172,26 +179,33 @@ PP.Game = {
     }
   },
 
-  /* Contextual E-prompt: tasks, lockers, the lift, chatting to staff. */
+  /** Contextual E-prompt: tasks, lockers, the lift, chatting to staff. */
   tickInteraction: function (dt) {
     var In = PP.Input, U = PP.U, pl = this.player;
     this.promptProp = null;
     if (pl.hiding) { PP.UI.prompt('Leave the locker'); return; }
     if (this.mode === 'monster') { PP.UI.prompt(null); return; }
 
+    // only things roughly in front of you count
+    var facing = function (p) {
+      var a = Math.atan2(p.y - pl.y, p.x - pl.x);
+      var diff = Math.abs(((a - pl.face + Math.PI) % 6.2832 + 6.2832) % 6.2832 - Math.PI);
+      return diff < 1.5;
+    };
+
     var best = null, bestD = 1e9, props = PP.World.props;
     for (var i = 0; i < props.length; i++) {
       var p = props[i];
       if (['task', 'locker', 'lift', 'node'].indexOf(p.kind) < 0) continue;
       var d = U.dist(pl.x, pl.y, p.x, p.y);
-      if (d < p.rad + 26 && d < bestD) { bestD = d; best = p; }
+      if (d < p.rad + 30 && d < bestD && facing(p)) { bestD = d; best = p; }
     }
-    // staff are interactable too — that's the roleplay part
     var npc = null, nd = 1e9;
     for (var n = 0; n < this.npcs.length; n++) {
       var q = this.npcs[n];
+      if (q.caught) continue;
       var dd = U.dist(pl.x, pl.y, q.x, q.y);
-      if (dd < 46 && dd < nd) { nd = dd; npc = q; }
+      if (dd < 48 && dd < nd && facing(q)) { nd = dd; npc = q; }
     }
     if (npc && nd < bestD) {
       PP.UI.prompt('Talk to ' + npc.name);
@@ -217,7 +231,7 @@ PP.Game = {
         PP.UI.prompt('Hide in locker');
         if (In.hit('e') || In.touch.interact) {
           pl.hiding = best; best.open = true;
-          pl.x = best.x; pl.y = best.y + 4;
+          pl.x = best.x; pl.y = best.y;
           PP.Audio.noise(0.22, 260, 0.12);
           PP.UI.toast('Hidden. Stay quiet.');
         }
@@ -226,14 +240,10 @@ PP.Game = {
         if (best.armed) {
           PP.UI.prompt('Ride the lift out');
           if (In.hit('e') || In.touch.interact) this.finish(true, 'You made it to the surface.');
-        } else {
-          PP.UI.prompt(null);
-          this.hint = 'The lift needs power.';
-        }
+        } else PP.UI.prompt(null);
         break;
       case 'node':
-        if (!best.done) PP.UI.prompt('Red hand → red socket, blue hand → blue socket');
-        else PP.UI.prompt(null);
+        PP.UI.prompt(best.done ? null : 'Red hand → red socket, blue hand → blue socket');
         break;
     }
   },
@@ -252,62 +262,47 @@ PP.Game = {
     PP.UI.subtitle(npc.name, npc.speaking.text);
   },
 
-  /* Fear rises near a monster and drives the screen effects + audio. */
   tickFear: function (dt) {
     var pl = this.player;
     if (this.mode === 'monster') { PP.Audio.drone(0.25); return; }
-    var near = this.nearestMonster(pl.x, pl.y);
-    var t = 0;
+    var near = this.nearestMonster(pl.x, pl.y), t = 0;
     if (near) {
-      var d = near.d;
-      if (d < 420) t = PP.U.clamp(1 - (d - 90) / 330, 0, 1);
+      if (near.d < 460) t = PP.U.clamp(1 - (near.d - 90) / 370, 0, 1);
       if (near.m.state === 'chase') t = Math.max(t, 0.75);
       if (pl.hiding) t *= 0.6;
     }
     if (t > pl.fear) pl.fear = PP.U.approach(pl.fear, t, 3.2, dt);
     PP.Audio.drone(pl.fear);
-  },
-
-  tickCamera: function (dt) {
-    var pl = this.player, lead = { x: 0, y: 0 };
-    if (!PP.Input.touch.active) {
-      var z = PP.Render.zoom;
-      var mx = (PP.Input.mouse.x - PP.Render.w / 2) / z, my = (PP.Input.mouse.y - PP.Render.h / 2) / z;
-      lead.x = PP.U.clamp(mx * 0.22, -90, 90);
-      lead.y = PP.U.clamp(my * 0.22, -90, 90);
-    }
-    var tx = pl.x + lead.x, ty = pl.y + lead.y;
-    this.cam.x = PP.U.approach(this.cam.x, tx, 7, dt);
-    this.cam.y = PP.U.approach(this.cam.y, ty, 7, dt);
-    if (this.player.fear > 0.5) {
-      var s = (this.player.fear - 0.5) * 6;
-      this.cam.x += PP.U.rand(-s, s); this.cam.y += PP.U.rand(-s, s);
-    }
+    if (pl.fear > 0.75) PP.Scene.camShake = Math.max(PP.Scene.camShake, 0.08);
   },
 
   /** Escalate the night as the player makes progress. */
   tickDirector: function (dt) {
     if (this.mode !== 'night') return;
+    var roster = ['mommy', 'bunzo', 'pj', 'catnap', 'boxy', 'huggy'];
+    var pick = function (taken) {
+      for (var i = 0; i < roster.length; i++) if (taken.indexOf(roster[i]) < 0) return roster[i];
+      return 'huggy';
+    };
+    var taken = this.monsters.map(function (m) { return m.def.id; });
     if (this.nodesDone >= 3 && this.monsters.length < 2) {
-      var m = this.spawnMonster(PP.getMonster('longlimb'), 'vault');
+      var m = this.spawnMonster(PP.getMonster(pick(taken)), 'vault');
       m.state = 'search'; m.timer = 8;
-      PP.UI.toast('Something else just woke up.', 'bad');
+      PP.UI.toast(m.def.name + ' just woke up.', 'bad');
       PP.Audio.roar();
     }
     if (this.nodesDone >= 5 && this.monsters.length < 3) {
-      this.spawnMonster(PP.getMonster('jangle'), 'giftshop');
-      PP.UI.toast('Cymbals in the west wing.', 'bad');
+      var m2 = this.spawnMonster(PP.getMonster(pick(taken)), 'giftshop');
+      PP.UI.toast(m2.def.name + ' is in the west wing.', 'bad');
     }
   },
 
   /* ═════════ events ═════════ */
   onTaskDone: function (task) {
     this.tasksDone++;
-    var pay = task.pay + (this.mode === 'night' ? 15 : 0);
-    this.award(pay, task.title);
+    this.award(task.pay + (this.mode === 'night' ? 15 : 0), task.title);
     PP.Audio.good();
-    var praise = PP.U.pick(['Nice one.', 'That\'s logged.', 'Good work.', 'Ticked off.']);
-    this.player.say(praise, 2);
+    this.player.say(PP.U.pick(['Nice one.', 'That\'s logged.', 'Good work.', 'Ticked off.']), 2);
     this.updateObjective();
   },
 
@@ -316,8 +311,9 @@ PP.Game = {
     node.charge = 1;
     if (node.sockets) node.sockets.forEach(function (s) { s.heldBy = null; });
     if (this.player.hands) {
+      var self = this;
       ['l', 'r'].forEach(function (k) {
-        var h = PP.Game.player.hands[k];
+        var h = self.player.hands[k];
         if (h.latch && h.latch.node === node) h.release();
       });
     }
@@ -342,9 +338,10 @@ PP.Game = {
     if (victim === this.player) {
       if (this.player.invuln > 0 || this.over) return;
       this.flash = 1;
+      PP.Scene.camShake = 0.6;
       PP.Audio.roar(); PP.Audio.bad();
 
-      // one close call per shift: you tear loose, drop tokens, and it stays angry
+      // one close call per shift: you tear loose and it stays angry
       if (this.player.saves > 0) {
         this.player.saves--;
         this.player.invuln = 3.2;
@@ -356,7 +353,6 @@ PP.Game = {
         this.earned -= lost;
         this.saveData.tokens = Math.max(0, this.saveData.tokens - lost);
         PP.Save.flush();
-        // shoved clear of the grab
         var a = Math.atan2(this.player.y - monster.y, this.player.x - monster.x);
         for (var s = 90; s > 0; s -= 15) {
           var nx = this.player.x + Math.cos(a) * s, ny = this.player.y + Math.sin(a) * s;
@@ -375,7 +371,6 @@ PP.Game = {
       PP.Audio.bad();
       if (monster === this.player) {
         this.award(30, 'Caught ' + victim.name);
-        PP.UI.toast('Caught ' + victim.name + '.', 'good');
         var left = this.npcs.filter(function (n) { return !n.caught; }).length;
         if (left === 0) this.finish(true, 'Every worker accounted for. The factory is quiet again.');
       } else {
@@ -391,27 +386,41 @@ PP.Game = {
     PP.Save.flush();
     PP.Audio.coin();
     PP.UI.toast('+' + n + ' tokens — ' + why, 'good');
-    PP.UI.refreshHud(this);
   },
 
   /* ═════════ abilities ═════════ */
   flare: function (x, y) {
     this.flares.push({ x: x, y: y, t: 2.4, max: 2.4 });
     PP.Audio.alarm();
-    var self = this;
     this.monsters.forEach(function (m) {
       if (PP.U.dist(m.x, m.y, x, y) < 420 && PP.World.lineClear(m.x, m.y, x, y)) {
-        m.stunT = 3.2; m.state = 'stunned'; m.path = null;
+        m.stunT = 3.2; m.state = 'stunned'; m.path = null; m.springPhase = null;
       }
     });
   },
   dropDecoy: function (x, y) {
     var d = PP.World.addProp({ kind: 'decoy', x: x, y: y, rad: 14, life: 12, block: false });
+    d.obj = PP.Models.prop(d);
+    d.obj.position.set(x, 0, y);
+    PP.Scene.propGroup.add(d.obj);
     this.monsters.forEach(function (m) {
       if (PP.U.dist(m.x, m.y, x, y) < 700) { m.decoy = { x: x, y: y, t: 9 }; m.state = 'patrol'; m.path = null; }
     });
     this.makeNoise(x, y, 420, null);
     return d;
+  },
+  dropGas: function (x, y, big) {
+    var g = PP.World.addProp({ kind: 'gas', x: x, y: y, rad: 40, life: big ? 16 : 9, block: false });
+    g.obj = PP.Models.prop(g);
+    g.obj.position.set(x, 0, y);
+    if (big) g.obj.scale.setScalar(1.6);
+    PP.Scene.propGroup.add(g.obj);
+    PP.Audio.noise(0.5, 320, 0.09, 0.6);
+    return g;
+  },
+  revealStaff: function (secs) {
+    this.reveal = secs;
+    PP.UI.toast('The crash echoes back. You can hear all of them.', 'good');
   },
   slipAway: function (t) { this.slip = t; },
   overrideNearestNode: function (pl) {
@@ -428,13 +437,11 @@ PP.Game = {
     return true;
   },
 
-  /* ═════════ helpers used by entities ═════════ */
+  /* ═════════ helpers ═════════ */
   makeNoise: function (x, y, radius, src) {
     this.noises.push({ x: x, y: y, r: radius, t: 0.5 });
     for (var i = 0; i < this.monsters.length; i++) {
-      var m = this.monsters[i];
-      if (m === src) continue;
-      m.hear(x, y, radius);
+      if (this.monsters[i] !== src) this.monsters[i].hear(x, y, radius);
     }
   },
   nearestMonster: function (x, y) {
@@ -445,23 +452,15 @@ PP.Game = {
     }
     return best ? { m: best, d: bd } : null;
   },
-  /** who the monsters are allowed to hunt */
   preyList: function () {
-    if (this.mode === 'monster') return this.npcs;
-    return [this.player].concat(this.npcs);
+    return this.mode === 'monster' ? this.npcs : [this.player].concat(this.npcs);
   },
   drawList: function () {
-    return [this.player].concat(this.npcs, this.monsters)
-      .filter(function (a) { return a && !(a.caught && a instanceof Npc && a.hidden); });
+    return [this.player].concat(this.npcs, this.monsters);
   },
   showMonsterOnMap: function () {
     if (this.mode === 'monster') return false;
     return this.player.role && this.player.role.id === 'guard';
-  },
-  screenToWorld: function (sx, sy) {
-    var z = PP.Render.zoom;
-    return { x: (sx - PP.Render.w / 2) / z + this.cam.x,
-             y: (sy - PP.Render.h / 2) / z + this.cam.y };
   },
 
   /* ═════════ objective text ═════════ */
@@ -484,10 +483,7 @@ PP.Game = {
       if (this.nodesDone < 5) {
         txt = 'Restore the power: ' + this.nodesDone + '/5 nodes';
         pct = this.nodesDone / 5;
-      } else {
-        txt = 'Get to the Lift Bay and ride out';
-        pct = 1;
-      }
+      } else { txt = 'Get to the Lift Bay and ride out'; pct = 1; }
     } else {
       var left = this.npcs.filter(function (n) { return !n.caught; }).length;
       txt = 'Catch the staff: ' + (this.npcs.length - left) + '/' + this.npcs.length +
@@ -502,12 +498,11 @@ PP.Game = {
     if (this.over) return;
     this.over = true; this.running = false;
     PP.Audio.stopDrone();
+    PP.Input.unlock();
     var S = this.saveData;
     S.shifts = (S.shifts || 0) + 1;
 
-    var rows = [];
-    rows.push(['Tokens earned', this.earned]);
-    rows.push(['Jobs finished', this.tasksDone]);
+    var rows = [['Tokens earned', this.earned], ['Jobs finished', this.tasksDone]];
     if (this.mode !== 'monster') rows.push(['Power nodes', this.nodesDone + '/5']);
     else rows.push(['Staff caught', this.caughtCount + '/' + this.npcs.length]);
     rows.push(['Time on shift', PP.U.fmtTime(this.clock)]);
@@ -518,13 +513,8 @@ PP.Game = {
       rows.push(['Completion bonus', bonus]);
       PP.Audio.good();
     }
-    var key = this.mode;
-    if (!S.best[key] || this.earned > S.best[key]) S.best[key] = this.earned;
-
-    // monsters unlock as you bank tokens
-    PP.MONSTERS.forEach(function (m) {
-      if (S.tokens >= m.unlockAt) S.unlocked[m.id] = true;
-    });
+    if (!S.best[this.mode] || this.earned > S.best[this.mode]) S.best[this.mode] = this.earned;
+    PP.MONSTERS.forEach(function (m) { if (S.tokens >= m.unlockAt) S.unlocked[m.id] = true; });
     PP.Save.flush();
     PP.UI.endCard(win, reason, rows, this);
   }
