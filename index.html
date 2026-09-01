@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#0a0d14">
+<title>Playtime Factory RP</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div id="stage">
+  <canvas id="game"></canvas>
+
+  <!-- ══════════════ HUD ══════════════ -->
+  <div id="hud" class="hidden">
+    <div class="hud-top">
+      <div class="pill" id="hud-role"><span class="dot"></span><span id="hud-role-name">Worker</span></div>
+      <div class="pill" id="hud-tokens"><b>0</b> tokens</div>
+      <div class="pill" id="hud-clock">Shift 1 &middot; 00:00</div>
+    </div>
+
+    <div id="objective">
+      <div class="obj-label">OBJECTIVE</div>
+      <div class="obj-text" id="obj-text">Explore the factory.</div>
+      <div class="obj-bar"><i id="obj-fill"></i></div>
+    </div>
+
+    <canvas id="minimap" width="200" height="150"></canvas>
+
+    <div class="hud-bottom">
+      <div class="meter" title="Stamina"><i id="stamina-fill"></i></div>
+      <div class="meter fear" title="Fear"><i id="fear-fill"></i></div>
+      <div id="hands">
+        <div class="hand left"  id="hand-l"><span>LMB</span></div>
+        <div class="hand right" id="hand-r"><span>RMB</span></div>
+      </div>
+    </div>
+
+    <div id="prompt" class="hidden"><kbd>E</kbd> <span id="prompt-text"></span></div>
+    <div id="toasts"></div>
+    <div id="subtitle" class="hidden"><b id="sub-who"></b><span id="sub-line"></span></div>
+  </div>
+
+  <!-- ══════════════ CHAT / EMOTE WHEEL ══════════════ -->
+  <div id="wheel" class="hidden"></div>
+
+  <!-- ══════════════ TOUCH CONTROLS ══════════════ -->
+  <div id="touch" class="hidden">
+    <div id="stick"><i></i></div>
+    <div id="tbuttons">
+      <button class="tbtn" data-act="interact">E</button>
+      <button class="tbtn" data-act="sprint">RUN</button>
+      <button class="tbtn" data-act="chat">CHAT</button>
+    </div>
+  </div>
+
+  <!-- ══════════════ MENUS ══════════════ -->
+  <div id="menu" class="screen">
+    <div class="vignette"></div>
+    <div class="menu-inner">
+      <h1 class="logo">PLAYTIME <span>FACTORY</span></h1>
+      <p class="tag">roleplay &middot; chapter zero</p>
+
+      <div class="menu-tabs">
+        <button class="tab active" data-tab="play">Play</button>
+        <button class="tab" data-tab="cast">Cast</button>
+        <button class="tab" data-tab="shop">Shop</button>
+        <button class="tab" data-tab="help">How to Play</button>
+      </div>
+
+      <div class="tabpanel active" id="tab-play">
+        <div class="modes" id="mode-list"></div>
+        <label class="namefield">Your name tag
+          <input id="playername" maxlength="14" placeholder="New Hire" autocomplete="off">
+        </label>
+        <button class="big" id="btn-start">ENTER THE FACTORY</button>
+      </div>
+
+      <div class="tabpanel" id="tab-cast">
+        <p class="hint">Pick who you clock in as. Each role changes how you play.</p>
+        <div class="cast" id="cast-list"></div>
+      </div>
+
+      <div class="tabpanel" id="tab-shop">
+        <p class="hint">Spend Playtime Tokens earned on shift.</p>
+        <div class="shop" id="shop-list"></div>
+      </div>
+
+      <div class="tabpanel" id="tab-help">
+        <div class="help">
+          <div class="hrow"><kbd>W A S D</kbd><span>Move around the factory</span></div>
+          <div class="hrow"><kbd>Shift</kbd><span>Sprint &mdash; fast, loud, drains stamina</span></div>
+          <div class="hrow"><kbd>E</kbd><span>Interact: tasks, lockers, doors, NPCs</span></div>
+          <div class="hrow"><kbd>LMB</kbd><span>Fire the <b>red</b> GrabPack hand</span></div>
+          <div class="hrow"><kbd>RMB</kbd><span>Fire the <b>blue</b> GrabPack hand</span></div>
+          <div class="hrow"><kbd>C</kbd><span>Chat &amp; emote wheel</span></div>
+          <div class="hrow"><kbd>F</kbd><span>Toggle flashlight</span></div>
+          <div class="hrow"><kbd>Tab</kbd><span>Big map</span></div>
+          <div class="hrow"><kbd>Esc</kbd><span>Pause</span></div>
+          <p class="hint">Power nodes need <b>both</b> hands: grab the red socket with the
+          red hand and the blue socket with the blue hand at the same time.</p>
+        </div>
+      </div>
+
+      <p class="fineprint">An original fan-made homage. Not affiliated with, or endorsed by,
+      any existing toy-factory horror franchise.</p>
+    </div>
+  </div>
+
+  <div id="pause" class="screen hidden">
+    <div class="menu-inner narrow">
+      <h2>PAUSED</h2>
+      <button class="big" id="btn-resume">Resume Shift</button>
+      <button class="ghost" id="btn-quit">Clock Out</button>
+    </div>
+  </div>
+
+  <div id="endcard" class="screen hidden">
+    <div class="menu-inner narrow">
+      <h2 id="end-title">SHIFT OVER</h2>
+      <p id="end-body"></p>
+      <div class="payout" id="end-payout"></div>
+      <button class="big" id="btn-again">Clock In Again</button>
+      <button class="ghost" id="btn-menu">Main Menu</button>
+    </div>
+  </div>
+
+  <div id="bigmap" class="screen hidden">
+    <canvas id="bigmap-canvas" width="900" height="620"></canvas>
+    <p class="hint">Tab to close</p>
+  </div>
+</div>
+
+<script src="js/core.js"></script>
+<script src="js/roles.js"></script>
+<script src="js/world.js"></script>
+<script src="js/entities.js"></script>
+<script src="js/render.js"></script>
+<script src="js/game.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
