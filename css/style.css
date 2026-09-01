@@ -1,5 +1,6 @@
 /* ═══════════════ Playtime Factory RP ═══════════════ */
 :root{
+  color-scheme:dark;   /* the factory commits to one visual world */
   --ink:#e9edf6; --dim:#93a0b8; --bg:#070910;
   --red:#e6404f; --blue:#3c7ff0; --gold:#ffc94d;
   --panel:rgba(14,18,28,.92); --line:rgba(255,255,255,.10);

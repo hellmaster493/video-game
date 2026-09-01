@@ -104,6 +104,17 @@ in the shop on cosmetics — two of which are quietly useful (`Head Lamp` extend
 your torch, `Dust Sheet` makes monsters lose your trail sooner) — or bank them to
 unlock the other two monsters.
 
+## Single-file build
+
+```bash
+node build.js              # dist/playtime-factory.html — the whole game in one file
+node build.js --fragment   # same, without the <html>/<head>/<body> wrapper
+```
+
+The bundler just substitutes each `<link>` and `<script src>` for the file it
+points at — there is nothing to compile. Handy for dropping the game into a
+WebView, a `.zip` game host, or anywhere a single page is easier than nine.
+
 ## Layout
 
 ```
@@ -117,6 +128,7 @@ js/render.js    tile art, characters, lighting, minimap
 js/game.js      modes, objectives, interaction, scoring
 js/ui.js        menus, HUD, chat wheel, shop, end card
 js/main.js      boot and frame loop
+build.js        optional single-file bundler
 ```
 
 Scripts are plain (non-module) so the page loads over `file://` without a server.
