@@ -9,7 +9,7 @@
   PP.Save.load();
   PP.Scene.init(canvas);
   PP.Input.init(canvas);
-  PP.World.build(1337);          // a world exists before the first shift, for the menu
+  PP.World.build(1337, PP.Save.data.map);   // a world exists before the first shift
   PP.UI.init();
   document.getElementById('boot').classList.add('hidden');
 

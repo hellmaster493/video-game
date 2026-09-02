@@ -7,46 +7,10 @@
 PP.TILE = 32;
 PP.T = { VOID: 0, FLOOR: 1, WALL: 2, VENT: 3, CARPET: 4, CONVEYOR: 5, CHECKER: 6, GRATE: 7 };
 
-/* Room rectangles are in tiles: [x, y, w, h]. */
-PP.ROOMS = [
-  { id: 'lobby',     name: 'Main Lobby',    r: [6, 6, 24, 16],  floor: PP.T.CHECKER },
-  { id: 'giftshop',  name: 'Gift Shop',     r: [34, 6, 16, 11], floor: PP.T.CARPET },
-  { id: 'breakroom', name: 'Break Room',    r: [54, 6, 14, 10], floor: PP.T.CARPET },
-  { id: 'generator', name: 'Generator Bay', r: [74, 6, 18, 14], floor: PP.T.FLOOR },
-  { id: 'assembly',  name: 'Assembly Line', r: [6, 26, 28, 16], floor: PP.T.FLOOR },
-  { id: 'vault',     name: 'Toy Vault',     r: [38, 22, 18, 14], floor: PP.T.CARPET },
-  { id: 'control',   name: 'Control Room',  r: [60, 24, 16, 12], floor: PP.T.FLOOR },
-  { id: 'gamestn',   name: 'Game Station',  r: [6, 46, 22, 16], floor: PP.T.CHECKER },
-  { id: 'warehouse', name: 'Warehouse',     r: [32, 40, 24, 20], floor: PP.T.FLOOR },
-  { id: 'venthub',   name: 'Vent Hub',      r: [60, 42, 12, 10], floor: PP.T.GRATE },
-  { id: 'liftbay',   name: 'Lift Bay',      r: [78, 44, 14, 14], floor: PP.T.FLOOR }
-];
-
-/* [x, y, w, h] carved as open floor — the halls between rooms. */
-PP.HALLS = [
-  [28, 12, 8, 3],   // lobby → gift shop
-  [48, 10, 8, 3],   // gift shop → break room
-  [66, 10, 10, 3],  // break room → generator
-  [16, 20, 4, 8],   // lobby → assembly
-  [32, 28, 8, 3],   // assembly → vault
-  [54, 28, 8, 3],   // vault → control
-  [63, 34, 4, 10],  // control → vent hub
-  [16, 40, 4, 8],   // assembly → game station
-  [26, 50, 8, 3],   // game station → warehouse
-  [54, 46, 8, 3],   // warehouse → vent hub
-  [70, 46, 10, 3],  // vent hub → lift bay
-  [81, 18, 4, 13],  // generator down
-  [74, 29, 11, 3],  // ...into control room
-  [44, 34, 3, 8]    // vault → warehouse
-];
-
-/* Crawl shortcuts: [x1, y1, x2, y2] single-tile lines. */
-PP.VENTS = [
-  [44, 16, 44, 23],  // gift shop ↔ toy vault
-  [64, 15, 64, 25],  // break room ↔ control room
-  [56, 54, 79, 54],  // warehouse ↔ lift bay (the long crawl)
-  [26, 21, 26, 27]   // lobby ↔ assembly
-];
+PP.FLOORS = {
+  floor: PP.T.FLOOR, wall: PP.T.WALL, vent: PP.T.VENT, carpet: PP.T.CARPET,
+  conveyor: PP.T.CONVEYOR, checker: PP.T.CHECKER, grate: PP.T.GRATE
+};
 
 /** Minimal binary min-heap — keeps A* linear-scan-free on the big grid. */
 PP.Heap = function () { this.n = []; this.p = []; this.size = 0; };
@@ -83,32 +47,37 @@ PP.Heap.prototype.swap = function (a, b) {
 
 PP.World = {
   W: 100, H: 66, grid: null, rooms: [], props: [], detail: [], lamps: [],
+  halls: [], ventLines: [], map: null,
 
-  build: function (seed) {
-    var T = PP.T, W = this.W, H = this.H, i, j, r;
+  build: function (seed, mapId) {
+    var T = PP.T, i, j, r;
+    var map = this.map = PP.getMap(mapId || 'factory');
+    this.W = map.W; this.H = map.H;
+    var W = this.W, H = this.H;
     this.grid = new Uint8Array(W * H);          // starts as VOID
     this.rooms = []; this.props = []; this.detail = []; this.lamps = [];
+    this.halls = []; this.ventLines = (map.vents || []).slice();
     var rnd = PP.rng(seed || 1337);
 
     // ── carve rooms (floor + one-tile wall ring) ──
-    for (i = 0; i < PP.ROOMS.length; i++) {
-      var def = PP.ROOMS[i]; r = def.r;
+    for (i = 0; i < map.rooms.length; i++) {
+      var def = map.rooms[i]; r = def.r;
       this.rect(r[0] - 1, r[1] - 1, r[2] + 2, r[3] + 2, T.WALL);
-      this.rect(r[0], r[1], r[2], r[3], def.floor);
+      this.rect(r[0], r[1], r[2], r[3], PP.FLOORS[def.floor] || T.FLOOR);
       this.rooms.push({
-        id: def.id, name: def.name, x: r[0], y: r[1], w: r[2], h: r[3],
+        id: def.id, name: def.name, def: def, tags: def.tags || [],
+        x: r[0], y: r[1], w: r[2], h: r[3],
         cx: (r[0] + r[2] / 2) * PP.TILE, cy: (r[1] + r[3] / 2) * PP.TILE
       });
     }
-    // ── carve halls (walled the same way) ──
-    for (i = 0; i < PP.HALLS.length; i++) {
-      var h = PP.HALLS[i];
-      this.rect(h[0] - 1, h[1] - 1, h[2] + 2, h[3] + 2, T.WALL, true);
-      this.rect(h[0], h[1], h[2], h[3], T.FLOOR);
-    }
+    // ── hand-placed halls, where a map wants a specific shape ──
+    (map.halls || []).forEach(function (h) { this.carveHall(h[0], h[1], h[2], h[3]); }, this);
+    // ── links: an L-shaped corridor between two room centres ──
+    (map.links || []).forEach(function (l) { this.carveLink(l[0], l[1]); }, this);
+
     // ── carve vents ──
-    for (i = 0; i < PP.VENTS.length; i++) {
-      var v = PP.VENTS[i];
+    for (i = 0; i < this.ventLines.length; i++) {
+      var v = this.ventLines[i];
       var dx = Math.sign(v[2] - v[0]), dy = Math.sign(v[3] - v[1]);
       var x = v[0], y = v[1], guard = 0;
       while (guard++ < 400) {
@@ -120,16 +89,52 @@ PP.World = {
         x += dx; y += dy;
       }
     }
-    // conveyor belts down the assembly line
-    var asm = this.room('assembly');
-    for (j = 0; j < 3; j++) {
-      var cy = asm.y + 3 + j * 5;
-      for (i = asm.x + 2; i < asm.x + asm.w - 2; i++) this.set(i, cy, T.CONVEYOR);
-    }
+    // conveyor belts, for rooms that asked for them
+    this.rooms.forEach(function (room) {
+      var n = room.def.belts || 0;
+      for (var b = 0; b < n; b++) {
+        var cy = room.y + 3 + Math.floor(b * (room.h - 6) / Math.max(1, n - 1 || 1));
+        for (var cx = room.x + 2; cx < room.x + room.w - 2; cx++) this.set(cx, cy, T.CONVEYOR);
+      }
+    }, this);
+
     this.buildLamps(rnd);
     this.buildProps(rnd);
     this.buildDetail(rnd);
     return this;
+  },
+
+  /** Carve one open rectangle and remember it for the minimap. */
+  carveHall: function (x, y, w, h) {
+    this.rect(x - 1, y - 1, w + 2, h + 2, PP.T.WALL, true);
+    this.rect(x, y, w, h, PP.T.FLOOR);
+    this.halls.push([x, y, w, h]);
+  },
+
+  /** An L-shaped corridor between two room centres, three tiles wide. */
+  carveLink: function (aId, bId) {
+    var a = this.room(aId), b = this.room(bId);
+    if (!a || !b) return;
+    var ax = Math.round(a.x + a.w / 2), ay = Math.round(a.y + a.h / 2);
+    var bx = Math.round(b.x + b.w / 2), by = Math.round(b.y + b.h / 2);
+    var x0 = Math.min(ax, bx), x1 = Math.max(ax, bx);
+    var y0 = Math.min(ay, by), y1 = Math.max(ay, by);
+    // run along whichever axis is longer first, so corridors hug the rooms
+    if (Math.abs(bx - ax) >= Math.abs(by - ay)) {
+      this.carveHall(x0 - 1, ay - 1, x1 - x0 + 3, 3);
+      this.carveHall(bx - 1, y0 - 1, 3, y1 - y0 + 3);
+    } else {
+      this.carveHall(ax - 1, y0 - 1, 3, y1 - y0 + 3);
+      this.carveHall(x0 - 1, by - 1, x1 - x0 + 3, 3);
+    }
+  },
+
+  /** First room carrying a tag, with a sensible fallback. */
+  tagged: function (tag, fallback) {
+    for (var i = 0; i < this.rooms.length; i++) {
+      if (this.rooms[i].tags.indexOf(tag) >= 0) return this.rooms[i];
+    }
+    return fallback ? this.room(fallback) : this.rooms[0];
   },
 
   /** Ceiling strip lights on a grid — big rooms need more than one bulb. */
@@ -145,8 +150,8 @@ PP.World = {
           this.lamps.push({ x: lx * T + T / 2, y: ly * T + T / 2, r: 300,
                             dead: rnd() < 0.10, emg: rnd() < 0.30, ph: rnd() * 6.28 });
     }
-    for (i = 0; i < PP.HALLS.length; i++) {
-      var h = PP.HALLS[i];
+    for (i = 0; i < this.halls.length; i++) {
+      var h = this.halls[i];
       var horiz = h[2] >= h[3];
       var n = Math.max(1, Math.floor((horiz ? h[2] : h[3]) / 4));
       for (j = 0; j < n; j++) {
@@ -228,59 +233,39 @@ PP.World = {
   },
 
   buildProps: function (rnd) {
-    var self = this, TL = PP.TILE;
+    var self = this;
     function put(kind, room, extra) {
-      var r = self.room(room), s = self.spotIn(r, 1);
-      var p = Object.assign({ kind: kind, x: s.x, y: s.y, room: room, rad: 16 }, extra || {});
-      return self.addProp(p);
+      var s = self.spotIn(room, 1);
+      return self.addProp(Object.assign({ kind: kind, x: s.x, y: s.y, room: room.id, rad: 16 },
+                                        extra || {}));
     }
 
-    // Power nodes — the Night Shift objective. Two sockets, one per hand.
-    ['generator', 'control', 'assembly', 'warehouse', 'gamestn'].forEach(function (rm, i) {
-      put('node', rm, { rad: 30, done: false, charge: 0, label: 'Power Node ' + (i + 1) });
-    });
-
-    // Work stations — the roleplay jobs.
-    var jobs = [
-      ['assembly',  'Sort the conveyor',      'Sorting parts'],
-      ['giftshop',  'Restock the shelves',    'Restocking'],
-      ['vault',     'Log the toy inventory',  'Logging'],
-      ['gamestn',   'Reset the arcade',       'Rebooting'],
-      ['warehouse', 'Stack the pallets',      'Stacking'],
-      ['breakroom', 'Clean the coffee maker', 'Scrubbing'],
-      ['control',   'Run the camera check',   'Checking'],
-      ['generator', 'Grease the turbines',    'Greasing']
-    ];
-    jobs.forEach(function (j) {
-      put('task', j[0], { rad: 26, title: j[1], verb: j[2], done: false, progress: 0, pay: 25 });
-    });
-
-    // Lockers to hide in.
-    ['lobby', 'giftshop', 'breakroom', 'assembly', 'vault', 'control',
-     'gamestn', 'warehouse', 'generator'].forEach(function (rm) {
-      put('locker', rm, { rad: 22, open: false });
-      if (rnd() < 0.6) put('locker', rm, { rad: 22, open: false });
+    var nodeIdx = 0;
+    this.rooms.forEach(function (room) {
+      var d = room.def;
+      if (d.node) {
+        put('node', room, { rad: 30, done: false, charge: 0,
+                            label: 'Power Node ' + (++nodeIdx) });
+      }
+      if (d.job) {
+        put('task', room, { rad: 26, title: d.job[0], verb: d.job[1],
+                            done: false, progress: 0, pay: 25 });
+      }
+      for (var l = 0; l < (d.lockers || 0); l++) put('locker', room, { rad: 22, open: false });
+      var n = d.clutter ? 4 + Math.floor(rnd() * 4) : 0;
+      for (var c = 0; c < n; c++) {
+        put(d.clutter, room, { rad: 20, block: true, seed: rnd() });
+      }
+      for (var t = 0; t < (d.toys || 0); t++) {
+        var sp = self.spotIn(room, 1);
+        self.addProp({ kind: 'toy', x: sp.x, y: sp.y, rad: 10,
+                       hue: Math.floor(rnd() * 360), seed: rnd() });
+      }
     });
 
     // The way out.
-    var lb = this.room('liftbay');
-    this.addProp({ kind: 'lift', x: lb.cx, y: lb.cy, rad: 46, room: 'liftbay', armed: false });
-
-    // Flavour clutter — blocks sight lines, gives the rooms a shape.
-    var clutter = { giftshop: 'shelf', vault: 'shelf', warehouse: 'crate', generator: 'crate',
-                    gamestn: 'arcade', breakroom: 'table', lobby: 'plant', control: 'desk',
-                    assembly: 'crate' };
-    Object.keys(clutter).forEach(function (rm) {
-      var n = 4 + Math.floor(rnd() * 4);
-      for (var i = 0; i < n; i++) put(clutter[rm], rm, { rad: 20, block: true, seed: rnd() });
-    });
-
-    // Toy pile in the vault — pure atmosphere.
-    var v = this.room('vault');
-    for (var i = 0; i < 10; i++) {
-      this.addProp({ kind: 'toy', x: v.cx + PP.U.rand(-140, 140), y: v.cy + PP.U.rand(-90, 90),
-                     rad: 10, hue: Math.floor(rnd() * 360), seed: rnd() });
-    }
+    var ex = this.tagged('exit');
+    this.addProp({ kind: 'lift', x: ex.cx, y: ex.cy, rad: 46, room: ex.id, armed: false });
   },
 
   /* Static scuffs and stains, generated once so the floor isn't flat. */

@@ -48,6 +48,27 @@ pinned in place, facing a wall, for the several seconds that takes. That is the
 whole tension of Night Shift. The wrong hand bounces off the wrong socket, and
 the cable snaps if you walk too far.
 
+## The maps
+
+Four floors, picked on the menu, each with a different shape to play:
+
+| | |
+|---|---|
+| **Playtime Factory** | The main plant. Long sight lines, heavy machinery, and a lift on the far side. |
+| **Playcare** | The orphanage under the plant. Wide open, brightly carpeted, and very little to hide behind. |
+| **The Prototype Wing** | Cells, labs and a lot of ductwork. Tight corners, short sight lines, and everything uses the vents. |
+| **Game Station** | The arcade wing: one bright hub with the mini-games spoked off it. Nowhere is far from anywhere. |
+
+A map is pure data in `js/maps.js` — room rectangles carrying their own floor
+material, clutter, job station and tags. Rooms are joined either by hand-placed
+hall rectangles or by `links`, which carve an L-shaped corridor between two room
+centres, so adding a floor is a dozen lines and no geometry work. Nothing
+downstream knows a room by name: the game finds where you spawn, where the lift
+is and where a monster wakes up by looking up the `spawn`, `exit` and `den` tags.
+
+The menu draws each map's floorplan straight from that data, with the spawn room
+in gold, the exit in green, and the vents dashed.
+
 ## The toys
 
 Six of them, all selectable, and the differences are mechanical rather than
@@ -141,12 +162,18 @@ repaired, a third at five, both drawn from the ones you didn't pick.
   nearest lit fittings. With the power out they are the strongest thing in the
   room.
 - **Characters** are built from primitives and rigged as joint hierarchies, so a
-  single walk cycle drives everyone. Limbs have real elbows and knees that only
-  bend one way; hands have five jointed fingers and feet have toes; the torso is
-  a pelvis, ribcage and tapering chest rather than one capsule, with shoulders,
-  a neck and a sewn-on belly patch. Anything rigid — a whole hand, a mouth full
-  of teeth, a limb segment — is merged into one geometry, so the detail costs
-  draw calls it doesn't need to.
+  single walk cycle drives everyone. Each limb is articulated the way a limb
+  actually is: a ball-and-socket at the shoulder or hip, a hinge at the elbow or
+  knee that only bends one way, and a wrist or ankle that counter-rotates to
+  keep the hand level and the sole flat on the floor. Above that, a spine pivot
+  leans into a run and counter-twists against the stride, and a neck pivot lets
+  a monster keep its head locked on you while its body runs somewhere else.
+  Hands have five jointed fingers, feet have toes, and the torso is a pelvis,
+  ribcage and tapering chest with shoulders and a sewn-on belly patch. Anything
+  rigid — a whole hand, a mouth full of teeth, a limb segment — is merged into
+  one geometry, so the detail costs draw calls it doesn't need to.
+- **CatNap walks on four legs**, with forelegs that fold back, hind legs that
+  fold forward, and a diagonal gait — front-left swings with back-right.
 - **Fabric.** The toys wear a `MeshPhysicalMaterial` with sheen, which is the
   shading model for velvet and short-pile plush: it lights the fuzz at grazing
   angles the way real fabric does. The texture underneath is a directional fibre
@@ -193,6 +220,7 @@ css/style.css   all styling
 vendor/         three.js r147 (MIT), vendored so the game works offline
 js/core.js      math, input and pointer lock, save data, WebAudio synth
 js/roles.js     cast, monsters, modes, emotes, shop items
+js/maps.js      the four playable floors, as data
 js/textures.js  procedural albedo + normal maps, environment map
 js/models.js    every character and prop, built from primitives
 js/post.js      bloom, tone mapping, colour grade, vignette, grain

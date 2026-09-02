@@ -5,6 +5,58 @@
 'use strict';
 
 PP.Minimap = {
+  /** Floorplan thumbnail for the map picker, drawn straight from map data. */
+  preview: function (map, canvas) {
+    var c = canvas.getContext('2d'), T = PP.TILE;
+    var pad = 6;
+    var sc = Math.min((canvas.width - pad * 2) / (map.W * T),
+                      (canvas.height - pad * 2) / (map.H * T));
+    c.clearRect(0, 0, canvas.width, canvas.height);
+    c.save();
+    c.translate(pad, pad); c.scale(sc, sc);
+
+    var byId = {};
+    map.rooms.forEach(function (r) { byId[r.id] = r; });
+    var mid = function (r) { return { x: (r.r[0] + r.r[2] / 2) * T, y: (r.r[1] + r.r[3] / 2) * T }; };
+
+    c.strokeStyle = 'rgba(150,170,205,.35)';
+    c.lineWidth = 9 / sc;
+    (map.links || []).forEach(function (l) {
+      var a = byId[l[0]], b = byId[l[1]];
+      if (!a || !b) return;
+      var p = mid(a), q = mid(b);
+      c.beginPath(); c.moveTo(p.x, p.y);
+      if (Math.abs(q.x - p.x) >= Math.abs(q.y - p.y)) { c.lineTo(q.x, p.y); }
+      else { c.lineTo(p.x, q.y); }
+      c.lineTo(q.x, q.y); c.stroke();
+    });
+    c.fillStyle = 'rgba(150,170,205,.30)';
+    (map.halls || []).forEach(function (h) {
+      c.fillRect(h[0] * T, h[1] * T, h[2] * T, h[3] * T);
+    });
+
+    map.rooms.forEach(function (r) {
+      var tags = r.tags || [];
+      var spawn = tags.indexOf('spawn') >= 0, exit = tags.indexOf('exit') >= 0;
+      c.fillStyle = spawn ? 'rgba(255,201,77,.42)' : exit ? 'rgba(73,214,127,.40)'
+                                                   : 'rgba(150,170,205,.28)';
+      c.fillRect(r.r[0] * T, r.r[1] * T, r.r[2] * T, r.r[3] * T);
+      c.strokeStyle = spawn ? 'rgba(255,201,77,.9)' : exit ? 'rgba(73,214,127,.85)'
+                                                    : 'rgba(180,200,235,.45)';
+      c.lineWidth = 3 / sc;
+      c.strokeRect(r.r[0] * T, r.r[1] * T, r.r[2] * T, r.r[3] * T);
+    });
+    c.strokeStyle = 'rgba(255,201,77,.5)';
+    c.lineWidth = 5 / sc;
+    c.setLineDash([14 / sc, 10 / sc]);
+    (map.vents || []).forEach(function (v) {
+      c.beginPath();
+      c.moveTo(v[0] * T, v[1] * T); c.lineTo(v[2] * T, v[3] * T); c.stroke();
+    });
+    c.setLineDash([]);
+    c.restore();
+  },
+
   draw: function (game, canvas, big) {
     var c = canvas.getContext('2d'), W = PP.World, T = PP.TILE;
     var pad = big ? 10 : 5;
@@ -14,8 +66,8 @@ PP.Minimap = {
     c.save();
     c.translate(pad, pad); c.scale(sc, sc);
 
-    for (var h = 0; h < PP.HALLS.length; h++) {
-      var hh = PP.HALLS[h];
+    for (var h = 0; h < W.halls.length; h++) {
+      var hh = W.halls[h];
       c.fillStyle = 'rgba(110,128,160,.22)';
       c.fillRect(hh[0] * T, hh[1] * T, hh[2] * T, hh[3] * T);
     }
@@ -38,8 +90,8 @@ PP.Minimap = {
     c.strokeStyle = 'rgba(255,201,77,.42)';
     c.lineWidth = 6 / sc;
     c.setLineDash([16 / sc, 12 / sc]);
-    for (var v = 0; v < PP.VENTS.length; v++) {
-      var vv = PP.VENTS[v];
+    for (var v = 0; v < W.ventLines.length; v++) {
+      var vv = W.ventLines[v];
       c.beginPath();
       c.moveTo(vv[0] * T + T / 2, vv[1] * T + T / 2);
       c.lineTo(vv[2] * T + T / 2, vv[3] * T + T / 2);

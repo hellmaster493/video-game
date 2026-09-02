@@ -26,15 +26,15 @@ PP.Game = {
     this.npcs = []; this.monsters = [];
     this.shift = (S.shifts || 0) + 1;
 
-    PP.World.build(12345 + this.shift * 7);
+    PP.World.build(12345 + this.shift * 7, opts.map);
     this.addSockets();
 
-    var lobby = PP.World.room('lobby');
+    var spawn = PP.World.tagged('spawn');
     var role = PP.getRole(opts.role);
 
     if (this.mode === 'monster') {
       var mdef = PP.getMonster(opts.monster || 'huggy');
-      var vh = PP.World.room('venthub'), vs = PP.World.spotIn(vh, 1);
+      var vh = PP.World.tagged('vent'), vs = PP.World.spotIn(vh, 1);
       this.player = new MonsterPlayer(vs.x, vs.y, mdef, S.name || 'It');
       this.player.grabLen = 0;
       var mi = this.player.abilityInfo();
@@ -42,7 +42,7 @@ PP.Game = {
       this.power = true;
       this.spawnStaff(6);
     } else {
-      var s = PP.World.spotIn(lobby, 2);
+      var s = PP.World.spotIn(spawn, 2);
       this.player = new Player(s.x, s.y, role, S.name || 'New Hire');
       this.player.gold = !!S.owned.pack_gold;
       if (this.player.gold) this.player.grabLen += 90;
@@ -52,7 +52,7 @@ PP.Game = {
       if (this.mode === 'night') {
         this.power = false;
         this.spawnStaff(3);
-        this.spawnMonster(PP.getMonster(opts.hunter || 'huggy'), 'warehouse');
+        this.spawnMonster(PP.getMonster(opts.hunter || 'huggy'), PP.World.tagged('den').id);
       } else {
         this.power = true;
         this.player.torch = false;
@@ -85,12 +85,23 @@ PP.Game = {
   spawnStaff: function (n) {
     for (var i = 0; i < n; i++) {
       var r = PP.World.randomRoom();
-      if (r.id === 'liftbay') r = PP.World.room('assembly');
+      if (r.tags.indexOf('exit') >= 0) r = PP.World.tagged('spawn');
       var s = PP.World.spotIn(r, 1);
       var look = PP.ROLES[i % PP.ROLES.length].look;
       this.npcs.push(new Npc(s.x, s.y, PP.NPC_NAMES[(i * 3 + 1) % PP.NPC_NAMES.length],
                              Object.assign({}, look)));
     }
+  },
+
+  /** The walkable room furthest from the player, for waking something new. */
+  farRoom: function () {
+    var pl = this.player, best = null, bd = -1;
+    PP.World.rooms.forEach(function (r) {
+      if (r.tags.indexOf('exit') >= 0) return;
+      var d = PP.U.dist2(r.cx, r.cy, pl.x, pl.y);
+      if (d > bd) { bd = d; best = r; }
+    });
+    return best || PP.World.rooms[0];
   },
 
   spawnMonster: function (def, roomId) {
@@ -286,13 +297,13 @@ PP.Game = {
     };
     var taken = this.monsters.map(function (m) { return m.def.id; });
     if (this.nodesDone >= 3 && this.monsters.length < 2) {
-      var m = this.spawnMonster(PP.getMonster(pick(taken)), 'vault');
+      var m = this.spawnMonster(PP.getMonster(pick(taken)), this.farRoom().id);
       m.state = 'search'; m.timer = 8;
       PP.UI.toast(m.def.name + ' just woke up.', 'bad');
       PP.Audio.roar();
     }
     if (this.nodesDone >= 5 && this.monsters.length < 3) {
-      var m2 = this.spawnMonster(PP.getMonster(pick(taken)), 'giftshop');
+      var m2 = this.spawnMonster(PP.getMonster(pick(taken)), this.farRoom().id);
       PP.UI.toast(m2.def.name + ' is in the west wing.', 'bad');
     }
   },

@@ -166,7 +166,7 @@ PP.Save = {
   data: null,
   defaults: function () {
     return {
-      name: 'New Hire', tokens: 0, role: 'worker', mode: 'roam', gfx: 'high',
+      name: 'New Hire', tokens: 0, role: 'worker', mode: 'roam', gfx: 'high', map: 'factory',
       owned: {}, unlocked: {}, best: {}, shifts: 0
     };
   },

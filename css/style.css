@@ -131,6 +131,18 @@ h2{letter-spacing:.16em;font-size:26px;margin-bottom:14px}
 .tabpanel.active{display:block}
 @keyframes fade{from{opacity:0;transform:translateY(6px)}}
 
+.maps{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;
+  max-width:860px;margin:0 auto 6px}
+.mapcard{padding:9px;border-radius:12px;cursor:pointer;text-align:left;
+  background:rgba(255,255,255,.035);border:1px solid var(--line);transition:.15s}
+.mapcard:hover{border-color:rgba(255,255,255,.3);transform:translateY(-2px)}
+.mapcard.sel{border-color:var(--gold);background:rgba(255,201,77,.12)}
+.mapcard canvas{display:block;width:100%;height:auto;border-radius:8px;
+  background:rgba(6,9,14,.6);margin-bottom:7px}
+.mapcard h4{font-size:13px}
+.mapcard h4 span{margin-right:6px}
+.mapcard p{color:var(--dim);font-size:11px;margin-top:3px;line-height:1.45}
+
 .modes{display:grid;gap:10px;margin:0 auto 18px;max-width:640px}
 .mode{display:flex;gap:14px;align-items:center;text-align:left;padding:13px 16px;cursor:pointer;
   background:rgba(255,255,255,.035);border:1px solid var(--line);border-radius:12px;transition:.15s}

@@ -66,7 +66,29 @@ PP.UI = {
   },
 
   /* ═════════ menu construction ═════════ */
-  buildMenu: function () { this.buildModes(); this.buildCast(); this.buildShop(); this.buildQuality(); },
+  buildMenu: function () {
+    this.buildMaps(); this.buildModes(); this.buildCast(); this.buildShop(); this.buildQuality();
+  },
+
+  buildMaps: function () {
+    var host = document.getElementById('map-list'), S = PP.Save.data, self = this;
+    host.innerHTML = '';
+    PP.MAPS.forEach(function (m) {
+      var d = document.createElement('div');
+      d.className = 'mapcard' + (S.map === m.id ? ' sel' : '');
+      var cv = document.createElement('canvas');
+      cv.width = 260; cv.height = 190;
+      d.appendChild(cv);
+      var info = document.createElement('div');
+      info.innerHTML = '<h4><span>' + m.icon + '</span>' + m.name + '</h4><p>' + m.blurb + '</p>';
+      d.appendChild(info);
+      PP.Minimap.preview(m, cv);
+      d.onclick = function () {
+        S.map = m.id; PP.Save.flush(); PP.Audio.ui(); self.buildMaps();
+      };
+      host.appendChild(d);
+    });
+  },
 
   buildQuality: function () {
     var S = PP.Save.data, self = this;
@@ -118,7 +140,7 @@ PP.UI = {
     d.appendChild(info);
     // build the model once, snapshot it, then throw it away
     var rig = PP.Models.monster(m);
-    this.portrait(cv, rig, { spin: m.build === 'pj' ? -0.75 : -0.55 });
+    this.portrait(cv, rig, { spin: (m.build === 'pj' || m.look.quad) ? -1.05 : -0.55 });
     d.onclick = function () { onPick(); PP.Audio.ui(); };
     return d;
   },
@@ -251,7 +273,8 @@ PP.UI = {
     this.el.hud.classList.remove('hidden');
     this.el.end.classList.add('hidden');
     this.clearToasts();
-    PP.Game.start({ mode: S.mode, role: S.role, monster: S.monster || 'huggy', hunter: S.hunter || 'huggy' });
+    PP.Game.start({ mode: S.mode, role: S.role, map: S.map || 'factory',
+                    monster: S.monster || 'huggy', hunter: S.hunter || 'huggy' });
     PP.Input.wantLock = true;
     PP.Input.lock();
     this.refreshHud(PP.Game);

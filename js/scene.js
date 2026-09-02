@@ -512,14 +512,24 @@ PP.Scene = {
       if (rig.armR) rig.armR.rotation.x = -swing * 0.9 + (rig.noodly ? Math.cos(e.animPhase * 1.7) * 0.2 : 0);
       if (rig.legL) rig.legL.rotation.x = -swing;
       if (rig.legR) rig.legR.rotation.x = swing;
-      // elbows and knees only bend one way, and knees bend on the back swing
+      // elbows and knees only bend one way; wrists and ankles counter-rotate so
+      // the hand stays level and the sole stays flat on the floor
       if (rig.jointed) {
         var elbow = 0.22 + amp * 0.30;
-        if (rig.armL.lower) rig.armL.lower.rotation.x = elbow + Math.max(0, swing) * 0.55;
-        if (rig.armR.lower) rig.armR.lower.rotation.x = elbow + Math.max(0, -swing) * 0.55;
-        if (rig.legL && rig.legL.lower) rig.legL.lower.rotation.x = Math.max(0, swing) * 1.05 + 0.04;
-        if (rig.legR && rig.legR.lower) rig.legR.lower.rotation.x = Math.max(0, -swing) * 1.05 + 0.04;
+        this.hinge(rig.armL, elbow + Math.max(0, swing) * 0.55, 0.55);
+        this.hinge(rig.armR, elbow + Math.max(0, -swing) * 0.55, 0.55);
+        this.hinge(rig.legL, Math.max(0, swing) * 1.05 + 0.04, 0.85);
+        this.hinge(rig.legR, Math.max(0, -swing) * 1.05 + 0.04, 0.85);
       }
+      if (rig.quad) this.animateQuad(e, rig, dt, amp, sp);
+      if (rig.spine) {
+        // the body leans into a run and counter-twists against the stride
+        var lean = 0.04 + amp * 0.20 + (e.state === 'chase' ? 0.12 : 0);
+        rig.spine.rotation.x = PP.U.approach(rig.spine.rotation.x, lean, 6, dt);
+        rig.spine.rotation.z = Math.sin(e.animPhase) * amp * 0.055;
+        rig.spine.rotation.y = Math.sin(e.animPhase) * amp * 0.075;
+      }
+      if (rig.neck) this.aimHead(e, rig, game, dt, amp);
       if (rig.hips) {
         rig.hips.position.y = (rig.hips.userData.base == null
           ? (rig.hips.userData.base = rig.hips.position.y) : rig.hips.userData.base)
@@ -539,6 +549,49 @@ PP.Scene = {
       // you do not see your own body from inside your own head
       var firstPersonSelf = (e === game.player && !this.thirdPerson && game.mode !== 'monster');
       rig.root.visible = !e.hiding && !firstPersonSelf;
+    }
+  },
+
+  /** Bend one limb's hinge, then take the slack out at the wrist or ankle. */
+  hinge: function (limb, bend, counter) {
+    if (!limb || !limb.lower) return;
+    limb.lower.rotation.x = bend;
+    if (limb.wrist) limb.wrist.rotation.x = -(limb.rotation.x + bend) * counter;
+  },
+
+  /** Diagonal gait: front-left swings with back-right. */
+  animateQuad: function (e, rig, dt, amp, sp) {
+    var ph = e.animPhase;
+    for (var i = 0; i < rig.legs.length; i++) {
+      var L = rig.legs[i];
+      var sw = Math.sin(ph + L.phase) * amp;
+      L.node.rotation.x = sw * 0.55;
+      // a foreleg's elbow folds backward, a hind leg's hock folds forward
+      this.hinge(L.node, L.back ? Math.max(0, -sw) * 0.9 + 0.35
+                                : Math.max(0, sw) * 0.75 + 0.25, 0.8);
+    }
+    if (rig.body) rig.body.position.y = rig.bodyY + Math.abs(Math.sin(ph * 2)) * amp * 1.4;
+  },
+
+  /** A monster that has seen you keeps its head pointed at you. */
+  aimHead: function (e, rig, game, dt, amp) {
+    var neck = rig.neck, T = performance.now() / 1000;
+    var target = game.player;
+    var lock = (e instanceof Monster) && e !== game.player && target &&
+               (e.state === 'chase' || e.state === 'investigate') &&
+               PP.U.dist(e.x, e.y, target.x, target.y) < 700;
+    if (lock) {
+      var want = Math.atan2(target.y - e.y, target.x - e.x);
+      var local = ((e.face - want + Math.PI) % 6.2832 + 6.2832) % 6.2832 - Math.PI;
+      var eye = rig.eyeHeight || rig.height * 0.8;
+      var drop = Math.atan2(eye - 26, Math.max(30, PP.U.dist(e.x, e.y, target.x, target.y)));
+      neck.rotation.y = PP.U.approach(neck.rotation.y, PP.U.clamp(local, -0.95, 0.95), 7, dt);
+      neck.rotation.x = PP.U.approach(neck.rotation.x, PP.U.clamp(drop, -0.5, 0.5), 6, dt);
+      neck.rotation.z = PP.U.approach(neck.rotation.z, Math.sin(T * 5) * 0.05, 5, dt);
+    } else {
+      neck.rotation.y = PP.U.approach(neck.rotation.y, Math.sin(T * 0.6 + (rig.idleSway || 0)) * 0.3, 3, dt);
+      neck.rotation.x = PP.U.approach(neck.rotation.x, -amp * 0.12, 3, dt);
+      neck.rotation.z = PP.U.approach(neck.rotation.z, 0, 3, dt);
     }
   },
 
@@ -589,10 +642,7 @@ PP.Scene = {
         if (lgL) { lgL.rotation.x = Math.sin(T * 8 + q) * 0.5 * amp; lgR.rotation.x = -lgL.rotation.x; }
       }
     }
-    if (m.state === 'chase' && rig.head) {
-      rig.head.rotation.x = -0.12 + Math.sin(T * 9) * 0.05;
-    } else if (rig.head) {
-      rig.head.rotation.x = PP.U.approach(rig.head.rotation.x, 0, 4, dt);
+    if (rig.head && !rig.neck) {
       rig.head.rotation.y = Math.sin(T * 0.7 + (rig.idleSway || 0)) * 0.25;
     }
   },

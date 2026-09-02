@@ -100,13 +100,13 @@ PP.MONSTERS = [
   },
   {
     id: 'catnap', name: 'CatNap', unlockAt: 0, build: 'catnap',
-    blurb: 'Moves without a sound and leaves red gas behind it. You will hear nothing until the arms close.',
+    blurb: 'Four legs, no sound, and a grin with nothing in it. You hear nothing until it is already on you.',
     special: 'gas', specialName: 'Red Smoke',
     specialText: 'Silent footsteps, and a trail of gas that slows you and eats your stamina.',
     speed: 54, sense: 320, hearing: 480, vent: true, reach: 50, patience: 2.0, silent: true,
     look: { fur: '#6b4ba8', belly: '#d9c9f0', eye: '#ff3b3b', lip: '#2e1c4d',
-            h: 2.7, leg: 0.29, torso: 0.36, tr: 0.150, head: 0.180, arm: 0.40,
-            limbR: 0.046, teeth: 'wide', ears: true, tail: true }
+            h: 1.55, len: 2.4, quad: true, teeth: 'none', mouth: 'wide',
+            ears: true, tail: true }
   }
 ];
 

@@ -169,49 +169,76 @@ PP.Models = {
   },
 
   /**
-   * A limb with an actual elbow or knee. Returns the shoulder pivot; `.lower`
-   * is the second pivot, so a walk cycle can bend it.
+   * A limb articulated the way a limb actually is: a ball-and-socket at the
+   * shoulder or hip, a hinge at the elbow or knee, and a wrist or ankle that
+   * keeps the hand level and the foot flat.
+   *
+   *   g          shoulder / hip pivot
+   *   g.lower    elbow / knee pivot
+   *   g.wrist    wrist / ankle pivot, carrying the hand or foot
    */
-  limb2: function (o) {
+  limb3: function (o) {
     var g = new THREE.Group();
-    var up = [], lo = [];
-    up.push({ g: new THREE.SphereGeometry(o.r0 * 1.22, 12, 9), m: this.xf(0, 0, 0) });
-    up.push({ g: new THREE.CylinderGeometry(o.r0, o.r1, o.upper, 12),
+
+    // upper: socket ball moulded into the shaft
+    var up = [];
+    up.push({ g: new THREE.SphereGeometry(o.r0 * 1.24, 14, 10), m: this.xf(0, 0, 0, 0, 0, 0, 1, 0.95, 1) });
+    up.push({ g: new THREE.CylinderGeometry(o.r0, o.r1, o.upper, 14),
               m: this.xf(0, -o.upper / 2, 0) });
-    up.push({ g: new THREE.SphereGeometry(o.r1 * 1.1, 12, 9), m: this.xf(0, -o.upper, 0) });
     g.add(this.mesh(this.merge(up), o.mat));
 
     var lower = new THREE.Group();
     lower.position.y = -o.upper;
-    lo.push({ g: new THREE.CylinderGeometry(o.r1, o.r2, o.lower, 12),
-              m: this.xf(0, -o.lower / 2, 0) });
-    lower.add(this.mesh(this.merge(lo), o.mat));
-    if (o.end) { o.end.position.y = -o.lower; lower.add(o.end); }
+    // the hinge is a darker band, so the articulation reads at a glance
+    var knuck = this.mesh(new THREE.SphereGeometry(o.r1 * 1.16, 14, 10), o.jointMat || o.mat);
+    knuck.scale.set(1.0, 0.9, 1.0);
+    lower.add(knuck);
+    lower.add(this.mesh(this.merge([
+      { g: new THREE.CylinderGeometry(o.r1, o.r2, o.lower, 14), m: this.xf(0, -o.lower / 2, 0) }
+    ]), o.mat));
+
+    var wrist = new THREE.Group();
+    wrist.position.y = -o.lower;
+    // a hand or foot already fills the wrist, so only bare limbs need the ball
+    if (o.end) wrist.add(o.end);
+    else wrist.add(this.mesh(new THREE.SphereGeometry(o.r2 * 1.12, 12, 9), o.jointMat || o.mat));
+    lower.add(wrist);
+
     g.add(lower);
     g.lower = lower;
+    g.wrist = wrist;
     return g;
   },
+
+  /** Kept for the simpler props and the crawler segments. */
+  limb2: function (o) { return this.limb3(o); },
 
   /**
    * An eye painted onto a single sphere — sclera, veins, iris, pupil — under a
    * clearcoat, set into lids. Four stacked spheres never looked alive.
    */
-  eyeUnit: function (r, irisHex, lidMat) {
+  eyeUnit: function (r, irisHex, lidMat, glow) {
     var g = new THREE.Group();
-    var k = 'eye' + irisHex;
+    var k = 'eye' + irisHex + (glow ? 'g' : '');
     if (!this.matCache[k]) {
-      this.matCache[k] = new THREE.MeshPhysicalMaterial({
+      var em = new THREE.MeshPhysicalMaterial({
         map: PP.Tex.eyeTex(irisHex), roughness: 0.16, metalness: 0.0,
         clearcoat: 1.0, clearcoatRoughness: 0.035, envMapIntensity: 1.1
       });
+      if (glow) {
+        em.emissive = new THREE.Color(irisHex);
+        em.emissiveMap = PP.Tex.eyeTex(irisHex);
+        em.emissiveIntensity = 0.55;
+      }
+      this.matCache[k] = em;
     }
     var ball = this.mesh(new THREE.SphereGeometry(r, 24, 18), this.matCache[k]);
     ball.rotation.y = -Math.PI / 2;          // brings the painted iris to +Z
     g.add(ball);
 
     // lids frame the eye; they are not supposed to cover it
-    var lid = this.mesh(new THREE.SphereGeometry(r * 1.08, 20, 12, 0, 6.2832, 0, Math.PI * 0.30), lidMat);
-    lid.rotation.x = -0.55;
+    var lid = this.mesh(new THREE.SphereGeometry(r * 1.08, 20, 12, 0, 6.2832, 0, Math.PI * 0.26), lidMat);
+    lid.rotation.x = -0.72;
     g.add(lid); g.lid = lid;
     var low = this.mesh(new THREE.SphereGeometry(r * 1.08, 20, 10, 0, 6.2832, Math.PI * 0.84, Math.PI * 0.16), lidMat);
     low.rotation.x = 0.30;
@@ -253,7 +280,7 @@ PP.Models = {
     var g = new THREE.Group();
     lidMat = lidMat || this.plain(0x2a2028, 0.85, 0);
     for (var s = -1; s <= 1; s += 2) {
-      var e = this.eyeUnit(r, iris, lidMat);
+      var e = this.eyeUnit(r, iris, lidMat, glow);
       e.position.set(s * spread, y, z);
       e.rotation.y = s * 0.13;                 // eyes toe outward slightly
       g.add(e);
@@ -386,58 +413,71 @@ PP.Models = {
 
     var hips = new THREE.Group(); hips.position.y = legLen; g.add(hips); rig.hips = hips;
 
-    // torso: pelvis, ribcage and a chest that tapers, not one capsule
+    // pelvis stays with the hips; everything above it hangs off a spine pivot
+    var pelvis = this.mesh(new THREE.SphereGeometry(torsoR * 0.92, 20, 14), fur);
+    pelvis.scale.set(1, 0.85, 0.82);
+    pelvis.position.y = torsoR * 0.15;
+    hips.add(pelvis);
+
+    var spine = new THREE.Group();
+    spine.position.y = torsoR * 0.30;
+    hips.add(spine); rig.spine = spine;
+
     var body = [];
-    body.push({ g: new THREE.SphereGeometry(torsoR * 0.92, 20, 14),
-                m: this.xf(0, torsoR * 0.15, 0, 0, 0, 0, 1, 0.85, 0.82) });
     body.push({ g: new THREE.CylinderGeometry(torsoR * 0.98, torsoR * 0.88, torsoH * 0.72, 20),
-                m: this.xf(0, torsoH * 0.44, 0, 0, 0, 0, 1, 1, 0.82) });
+                m: this.xf(0, torsoH * 0.30, 0, 0, 0, 0, 1, 1, 0.82) });
     body.push({ g: new THREE.SphereGeometry(torsoR * 1.02, 20, 14),
-                m: this.xf(0, torsoH * 0.80, 0, 0, 0, 0, 1, 0.78, 0.82) });
+                m: this.xf(0, torsoH * 0.66, 0, 0, 0, 0, 1, 0.78, 0.82) });
     var torso = this.mesh(this.merge(body), fur);
-    hips.add(torso);
+    spine.add(torso);
     rig.torso = torso;
 
     // a sewn-on belly patch, slightly proud of the body
     var bel = this.mesh(new THREE.SphereGeometry(torsoR * 0.66, 20, 14), belly);
-    bel.position.set(0, torsoH * 0.42, torsoR * 0.44);
+    bel.position.set(0, torsoH * 0.28, torsoR * 0.44);
     bel.scale.set(0.95, 1.25, 0.42);
-    hips.add(bel);
+    spine.add(bel);
 
-    // shoulders and neck
     for (var sd = -1; sd <= 1; sd += 2) {
       var del = this.mesh(new THREE.SphereGeometry(torsoR * 0.42, 14, 10), fur);
-      del.position.set(sd * torsoR * 1.0, torsoH * 0.86, 0);
+      del.position.set(sd * torsoR * 1.0, torsoH * 0.72, 0);
       del.scale.set(1, 0.9, 0.9);
-      hips.add(del);
+      spine.add(del);
     }
-    var neck = this.mesh(new THREE.CylinderGeometry(torsoR * 0.42, torsoR * 0.52,
-                                                    H * L.head * 0.45, 14), furDark);
-    neck.position.y = torsoH + H * L.head * 0.14;
-    hips.add(neck);
+
+    // the head rides a neck pivot, so it can turn without the body turning
+    var neck = new THREE.Group();
+    neck.position.y = torsoH * 0.78;
+    spine.add(neck); rig.neck = neck;
+    var column = this.mesh(new THREE.CylinderGeometry(torsoR * 0.40, torsoR * 0.52,
+                                                      H * L.head * 0.50, 14), furDark);
+    column.position.y = H * L.head * 0.16;
+    neck.add(column);
 
     var head = new THREE.Group();
-    head.position.y = torsoH + H * L.head * 0.78;
-    hips.add(head); rig.head = head;
+    head.position.y = H * L.head * 0.60;
+    neck.add(head); rig.head = head;
 
-    var handR = limbR * 1.5;
-    rig.armL = this.limb2({ upper: armLen * 0.52, lower: armLen * 0.48,
-                            r0: limbR * 1.15, r1: limbR * 0.92, r2: limbR * 0.8, mat: fur,
-                            end: this.handMesh(handR, def.build === 'huggy' ? 3.4 : 2.2, fur, 0.2) });
-    rig.armR = this.limb2({ upper: armLen * 0.52, lower: armLen * 0.48,
-                            r0: limbR * 1.15, r1: limbR * 0.92, r2: limbR * 0.8, mat: fur,
-                            end: this.handMesh(handR, def.build === 'huggy' ? 3.4 : 2.2, fur, 0.2) });
-    rig.armL.position.set(-torsoR * 1.35, torsoH * 0.86, 0);
-    rig.armR.position.set(torsoR * 1.35, torsoH * 0.86, 0);
+    var handR = limbR * 1.5, self = this;
+    var arm = function () {
+      return self.limb3({ upper: armLen * 0.50, lower: armLen * 0.42,
+                          r0: limbR * 1.15, r1: limbR * 0.92, r2: limbR * 0.8,
+                          mat: fur, jointMat: furDark,
+                          end: self.handMesh(handR, def.build === 'huggy' ? 3.4 : 2.2, fur, 0.2) });
+    };
+    rig.armL = arm(); rig.armR = arm();
+    rig.armL.position.set(-torsoR * 1.35, torsoH * 0.72, 0);
+    rig.armR.position.set(torsoR * 1.35, torsoH * 0.72, 0);
     rig.armL.rotation.z = 0.18; rig.armR.rotation.z = -0.18;
-    hips.add(rig.armL); hips.add(rig.armR);
+    spine.add(rig.armL); spine.add(rig.armR);
 
-    rig.legL = this.limb2({ upper: legLen * 0.52, lower: legLen * 0.48,
-                            r0: limbR * 1.45, r1: limbR * 1.1, r2: limbR * 0.92, mat: fur,
-                            end: this.footMesh(limbR * 1.6, furDark) });
-    rig.legR = this.limb2({ upper: legLen * 0.52, lower: legLen * 0.48,
-                            r0: limbR * 1.45, r1: limbR * 1.1, r2: limbR * 0.92, mat: fur,
-                            end: this.footMesh(limbR * 1.6, furDark) });
+    var leg = function () {
+      return self.limb3({ upper: legLen * 0.50, lower: legLen * 0.42,
+                          r0: limbR * 1.45, r1: limbR * 1.1, r2: limbR * 0.92,
+                          mat: fur, jointMat: furDark,
+                          end: self.footMesh(limbR * 1.6, furDark) });
+    };
+    rig.legL = leg(); rig.legR = leg();
     rig.legL.position.set(-torsoR * 0.52, 0, 0);
     rig.legR.position.set(torsoR * 0.52, 0, 0);
     hips.add(rig.legL); hips.add(rig.legR);
@@ -481,7 +521,27 @@ PP.Models = {
       head.add(socket);
     }
 
-    if (L.teeth && L.teeth !== 'none') {
+    if (L.mouth === 'wide') {
+      // a broad crescent grin: lips, a dark interior, a tongue, and no teeth
+      var ww = r * (opts.mouthW || 1.5), wy = -r * 0.22, wz = r * 0.86;
+      var maw2 = this.mesh(new THREE.SphereGeometry(ww * 0.5, 22, 14), this.plain(0x140a10, 0.95, 0));
+      maw2.position.set(0, wy, wz);
+      maw2.scale.set(1, 0.34, 0.40);
+      head.add(maw2);
+      var lips = this.mesh(new THREE.TorusGeometry(ww * 0.5, ww * 0.105, 12, 34, Math.PI * 1.12),
+                           rig.lip);
+      lips.position.set(0, wy + ww * 0.02, wz + ww * 0.04);
+      lips.rotation.z = Math.PI * 1.06;
+      lips.scale.set(1, 0.42, 0.7);
+      head.add(lips);
+      var tng = this.mesh(new THREE.SphereGeometry(ww * 0.30, 16, 12), this.plain(0x8c3a4a, 0.75, 0));
+      tng.position.set(0, wy - ww * 0.06, wz + ww * 0.02);
+      tng.scale.set(1.0, 0.22, 0.55);
+      head.add(tng);
+      // a nose above the grin
+      head.add(this.mesh(new THREE.SphereGeometry(r * 0.12, 12, 9), rig.lip,
+                         0, r * 0.10, r * 0.98));
+    } else if (L.teeth && L.teeth !== 'none') {
       var mw = r * (opts.mouthW || 1.15), my = -r * 0.30, mz = r * 0.72;
       var squash = opts.mouthSquash || 0.62;
       // gum line
@@ -568,29 +628,88 @@ PP.Models = {
     return rig;
   },
 
+  /** CatNap walks on four legs, head low and forward. */
   mon_catnap: function (def) {
-    var rig = this.baseToy(def), r = rig.headR, H = rig.height;
-    this.toyHead(rig, def, r, { mouthW: 1.0, mouthSquash: 0.58 });
-    var wm = this.plain(0xe8e0f5, 0.6, 0);
-    for (var s = -1; s <= 1; s += 2) for (var i = 0; i < 3; i++) {
-      var w = this.tube(H * 0.004, H * 0.004, r * 0.8, wm,
-                        s * r * 0.45, -r * 0.15 + i * r * 0.12, r * 0.85);
-      w.rotation.z = s * 1.35; w.rotation.y = s * 0.3;
-      rig.head.add(w);
-    }
+    var M = PP.M, L = def.look, g = new THREE.Group();
+    var H = L.h * M;                     // height at the shoulder
+    var BL = (L.len || 2.2) * M;         // nose-to-tail body length
+    var rig = { root: g, height: H * 1.15 };
+    var fur = this.plush(new THREE.Color(L.fur).getHex());
+    var furDark = this.plush(new THREE.Color(L.fur).multiplyScalar(0.6).getHex());
+    var belly = this.plush(new THREE.Color(L.belly).getHex());
+    rig.fur = fur; rig.furDark = furDark; rig.belly = belly;
+    rig.lip = this.plain(new THREE.Color(L.lip).getHex(), 0.6, 0);
+
+    var bodyR = H * 0.30;
+    var body = new THREE.Group();
+    body.position.y = H * 0.62;
+    g.add(body);
+    rig.body = body; rig.bodyY = body.position.y; rig.hips = body;
+
+    // chest, midriff and haunches along Z
+    var parts = [];
+    parts.push({ g: new THREE.SphereGeometry(bodyR * 1.05, 20, 14),
+                 m: this.xf(0, 0, BL * 0.24, 0, 0, 0, 1, 0.95, 1.05) });
+    parts.push({ g: new THREE.CylinderGeometry(bodyR * 1.02, bodyR * 0.98, BL * 0.5, 20),
+                 m: this.xf(0, 0, 0, Math.PI / 2, 0, 0, 1, 1, 0.95) });
+    parts.push({ g: new THREE.SphereGeometry(bodyR * 1.12, 20, 14),
+                 m: this.xf(0, bodyR * 0.05, -BL * 0.26, 0, 0, 0, 1.05, 1, 1.1) });
+    body.add(this.mesh(this.merge(parts), fur));
+    var bel = this.mesh(new THREE.SphereGeometry(bodyR * 0.72, 18, 12), belly);
+    bel.position.set(0, -bodyR * 0.55, BL * 0.05);
+    bel.scale.set(0.9, 0.4, 1.9);
+    body.add(bel);
+
+    // neck angles up and forward from the chest
+    var neck = new THREE.Group();
+    neck.position.set(0, bodyR * 0.35, BL * 0.42);
+    neck.rotation.x = 0.42;
+    body.add(neck); rig.neck = neck;
+    var column = this.mesh(new THREE.CylinderGeometry(bodyR * 0.46, bodyR * 0.62, H * 0.38, 14), fur);
+    column.position.y = H * 0.17;
+    column.rotation.x = -0.30;
+    neck.add(column);
+
+    var head = new THREE.Group();
+    head.position.set(0, H * 0.36, H * 0.14);
+    head.rotation.x = -0.42;
+    neck.add(head); rig.head = head;
+    this.toyHead(rig, def, H * 0.42, { mouthW: 1.35, squash: 0.92, muzzle: false });
+
+    // four legs: forelegs fold back, hind legs fold forward
+    var limbR = H * 0.075, self = this;
+    rig.legs = [];
+    [[-1, 1], [1, 1], [-1, -1], [1, -1]].forEach(function (p, i) {
+      var back = p[1] < 0;
+      var len = back ? H * 0.66 : H * 0.62;
+      var lg = self.limb3({ upper: len * 0.52, lower: len * 0.48,
+                            r0: limbR * 1.25, r1: limbR, r2: limbR * 0.85,
+                            mat: fur, jointMat: furDark,
+                            end: self.footMesh(limbR * 1.5, furDark) });
+      lg.position.set(p[0] * bodyR * 0.72, -bodyR * 0.25, p[1] * BL * (back ? 0.30 : 0.34));
+      body.add(lg);
+      rig.legs.push({ node: lg, back: back, phase: (i === 0 || i === 3) ? 0 : Math.PI });
+    });
+
+    // tail
     rig.tail = [];
-    var prev = rig.hips, n = 6, seglen = H * 0.075;
+    var prev = body, n = 7, seglen = BL * 0.10;
     for (var t = 0; t < n; t++) {
       var seg = new THREE.Group();
-      seg.position.set(0, t === 0 ? H * 0.08 : 0, t === 0 ? -H * 0.10 : -seglen);
-      var mesh = this.tube(H * 0.028 * (1 - t / n * 0.6), H * 0.028 * (1 - (t + 1) / n * 0.6),
-                           seglen, rig.fur, 0, 0, -seglen / 2);
+      seg.position.set(0, t === 0 ? bodyR * 0.5 : 0, t === 0 ? -BL * 0.44 : -seglen);
+      var mesh = this.tube(bodyR * 0.20 * (1 - t / n * 0.7), bodyR * 0.20 * (1 - (t + 1) / n * 0.7),
+                           seglen, fur, 0, 0, -seglen / 2);
       mesh.rotation.x = Math.PI / 2;
       seg.add(mesh);
       prev.add(seg); prev = seg;
       rig.tail.push(seg);
     }
-    rig.armSwing = 0.9;
+
+    rig.eyeHeight = H * 1.05;
+    rig.quad = true;
+    rig.idleSway = 1.2;
+    rig.portraitScale = 1.75;   // longer than it is tall
+    rig.portraitLift = 0.10;
     return rig;
   },
 
