@@ -12,15 +12,54 @@ PP.Models = {
   matCache: {},
 
   /* ── material helpers ─────────────────────────────────── */
+  /** Short-pile fabric: rough, sheened, and lit at grazing angles. */
   plush: function (col, rough) {
     var k = 'plush' + col + rough;
     if (!this.matCache[k]) {
+      var c = new THREE.Color(col);
       this.matCache[k] = PP.Tex.mat('plush', {
-        color: col, roughness: rough == null ? 0.94 : rough, metalness: 0.0,
-        repeat: 2, normal: 0.8, env: 0.22
+        color: col, roughness: rough == null ? 0.96 : rough, metalness: 0.0,
+        repeat: 2.6, normal: 1.15, env: 0.20,
+        sheen: 0.5, sheenRoughness: 0.78,
+        // the fuzz catches light in a slightly lighter tint of the fabric itself
+        sheenColor: c.clone().lerp(new THREE.Color(0xffffff), 0.22).getHex()
       });
     }
     return this.matCache[k];
+  },
+
+  /**
+   * Concatenate several geometries into one, so a hand with five fingers or a
+   * mouth full of teeth costs a single draw call.
+   */
+  merge: function (parts) {
+    var P = [], N = [], U = [];
+    for (var i = 0; i < parts.length; i++) {
+      var src = parts[i].g;
+      var g = src.index ? src.toNonIndexed() : src.clone();
+      if (parts[i].m) g.applyMatrix4(parts[i].m);
+      var p = g.attributes.position.array, n = g.attributes.normal.array;
+      var u = g.attributes.uv ? g.attributes.uv.array : null;
+      for (var j = 0; j < p.length; j++) P.push(p[j]);
+      for (var j2 = 0; j2 < n.length; j2++) N.push(n[j2]);
+      var count = p.length / 3;
+      for (var k = 0; k < count; k++) U.push(u ? u[k * 2] : 0, u ? u[k * 2 + 1] : 0);
+      g.dispose();
+    }
+    var out = new THREE.BufferGeometry();
+    out.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+    out.setAttribute('normal', new THREE.Float32BufferAttribute(N, 3));
+    out.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2));
+    out.computeBoundingSphere();
+    return out;
+  },
+
+  /** Build a transform for merge(), in the order translate · rotate · scale. */
+  xf: function (x, y, z, rx, ry, rz, sx, sy, sz) {
+    return new THREE.Matrix4().compose(
+      new THREE.Vector3(x || 0, y || 0, z || 0),
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(rx || 0, ry || 0, rz || 0)),
+      new THREE.Vector3(sx == null ? 1 : sx, sy == null ? 1 : sy, sz == null ? 1 : sz));
   },
   cloth: function (col) {
     var k = 'cloth' + col;
@@ -80,48 +119,147 @@ PP.Models = {
     return g;
   },
 
-  /** Teeth ring inside a mouth opening. */
-  teeth: function (style, w, mat) {
+  /* ── anatomy ──────────────────────────────────────────── */
+
+  /** A chain of tapering segments with knuckles — one finger or toe. */
+  digit: function (parts, base, r, lens, curls, taper) {
+    var m = base.clone();
+    for (var i = 0; i < lens.length; i++) {
+      m.multiply(this.xf(0, 0, 0, curls[i] || 0, 0, 0));
+      var L = lens[i];
+      var r0 = r * Math.pow(taper, i), r1 = r * Math.pow(taper, i + 1);
+      parts.push({ g: new THREE.CylinderGeometry(r0, r1, L, 6), m: m.clone().multiply(this.xf(0, -L / 2, 0)) });
+      parts.push({ g: new THREE.SphereGeometry(r1 * 1.05, 6, 4), m: m.clone().multiply(this.xf(0, -L, 0)) });
+      m.multiply(this.xf(0, -L, 0));
+    }
+  },
+
+  /**
+   * A hand: palm plus four fingers and a thumb, all merged into one mesh.
+   * `reach` stretches the fingers — the long-armed toys have long hands too.
+   */
+  handMesh: function (palmR, reach, mat, curl) {
+    var parts = [], self = this;
+    curl = curl == null ? 0.22 : curl;
+    var palm = new THREE.SphereGeometry(palmR, 14, 10);
+    parts.push({ g: palm, m: this.xf(0, -palmR * 0.4, 0, 0, 0, 0, 1.0, 1.25, 0.62) });
+    var fr = palmR * 0.30, fl = palmR * reach;
+    for (var f = 0; f < 4; f++) {
+      var x = (f / 3 - 0.5) * palmR * 1.5;
+      var splay = (f / 3 - 0.5) * 0.22;
+      var base = this.xf(x, -palmR * 1.25, 0, 0, 0, -splay);
+      this.digit(parts, base, fr * (f === 3 ? 0.82 : 1),
+                 [fl * 0.5, fl * 0.34, fl * 0.24],
+                 [curl * 0.6, curl, curl * 1.3], 0.86);
+    }
+    var thumb = this.xf(-palmR * 1.15, -palmR * 0.55, palmR * 0.15, 0.3, 0, 1.15);
+    this.digit(parts, thumb, fr * 1.05, [fl * 0.4, fl * 0.3], [0.25, 0.45], 0.85);
+    return this.mesh(this.merge(parts), mat);
+  },
+
+  /** A foot: a rounded sole with three stubby toes. */
+  footMesh: function (r, mat) {
+    var parts = [];
+    parts.push({ g: new THREE.SphereGeometry(r, 14, 10), m: this.xf(0, 0, r * 0.35, 0, 0, 0, 1, 0.75, 1.7) });
+    for (var t = -1; t <= 1; t++) {
+      parts.push({ g: new THREE.SphereGeometry(r * 0.32, 8, 6),
+                   m: this.xf(t * r * 0.5, -r * 0.1, r * 1.25, 0, 0, 0, 1, 0.8, 1.25) });
+    }
+    return this.mesh(this.merge(parts), mat);
+  },
+
+  /**
+   * A limb with an actual elbow or knee. Returns the shoulder pivot; `.lower`
+   * is the second pivot, so a walk cycle can bend it.
+   */
+  limb2: function (o) {
     var g = new THREE.Group();
-    var white = this.plain(0xfffdf2, 0.4, 0);
+    var up = [], lo = [];
+    up.push({ g: new THREE.SphereGeometry(o.r0 * 1.22, 12, 9), m: this.xf(0, 0, 0) });
+    up.push({ g: new THREE.CylinderGeometry(o.r0, o.r1, o.upper, 12),
+              m: this.xf(0, -o.upper / 2, 0) });
+    up.push({ g: new THREE.SphereGeometry(o.r1 * 1.1, 12, 9), m: this.xf(0, -o.upper, 0) });
+    g.add(this.mesh(this.merge(up), o.mat));
+
+    var lower = new THREE.Group();
+    lower.position.y = -o.upper;
+    lo.push({ g: new THREE.CylinderGeometry(o.r1, o.r2, o.lower, 12),
+              m: this.xf(0, -o.lower / 2, 0) });
+    lower.add(this.mesh(this.merge(lo), o.mat));
+    if (o.end) { o.end.position.y = -o.lower; lower.add(o.end); }
+    g.add(lower);
+    g.lower = lower;
+    return g;
+  },
+
+  /**
+   * An eye painted onto a single sphere — sclera, veins, iris, pupil — under a
+   * clearcoat, set into lids. Four stacked spheres never looked alive.
+   */
+  eyeUnit: function (r, irisHex, lidMat) {
+    var g = new THREE.Group();
+    var k = 'eye' + irisHex;
+    if (!this.matCache[k]) {
+      this.matCache[k] = new THREE.MeshPhysicalMaterial({
+        map: PP.Tex.eyeTex(irisHex), roughness: 0.16, metalness: 0.0,
+        clearcoat: 1.0, clearcoatRoughness: 0.035, envMapIntensity: 1.1
+      });
+    }
+    var ball = this.mesh(new THREE.SphereGeometry(r, 24, 18), this.matCache[k]);
+    ball.rotation.y = -Math.PI / 2;          // brings the painted iris to +Z
+    g.add(ball);
+
+    // lids frame the eye; they are not supposed to cover it
+    var lid = this.mesh(new THREE.SphereGeometry(r * 1.08, 20, 12, 0, 6.2832, 0, Math.PI * 0.30), lidMat);
+    lid.rotation.x = -0.55;
+    g.add(lid); g.lid = lid;
+    var low = this.mesh(new THREE.SphereGeometry(r * 1.08, 20, 10, 0, 6.2832, Math.PI * 0.84, Math.PI * 0.16), lidMat);
+    low.rotation.x = 0.30;
+    g.add(low); g.lowLid = low;
+    return g;
+  },
+
+  /** Teeth ring inside a mouth opening. */
+  teethMesh: function (style, w, mat) {
+    var parts = [], self = this;
+    function tooth(x, y, z, h, wd, dp, flip) {
+      // a real tooth is a rounded wedge, not a box
+      var g = new THREE.CylinderGeometry(wd * 0.14, wd * 0.5, h, 6);
+      parts.push({ g: g, m: self.xf(x, y, z, flip ? Math.PI : 0, 0, 0, 1, 1, dp) });
+    }
     var n = style === 'buck' ? 2 : style === 'jagged' ? 7 : 6;
     for (var i = 0; i < n; i++) {
       var f = n === 1 ? 0.5 : i / (n - 1);
-      var x = (f - 0.5) * w;
-      var t;
-      if (style === 'jagged') {
-        t = this.mesh(new THREE.ConeGeometry(w * 0.075, w * 0.3, 4), white, x, -w * 0.1, 0);
-        t.rotation.x = Math.PI;
-      } else if (style === 'buck') {
-        t = this.box(w * 0.2, w * 0.28, w * 0.09, white, x * 0.45, -w * 0.13, 0);
-      } else {
-        t = this.box(w * 0.11, w * 0.16, w * 0.08, white, x, -w * 0.06, 0);
-      }
-      g.add(t);
+      var x = (f - 0.5) * w * 0.82;
+      var arc = -Math.abs(f - 0.5) * w * 0.22;          // the row curves back
+      if (style === 'jagged') tooth(x, -w * 0.02, arc, w * 0.34, w * 0.13, 0.7, true);
+      else if (style === 'buck') tooth(x * 0.5, -w * 0.06, arc, w * 0.30, w * 0.24, 0.75, true);
+      else tooth(x, -w * 0.03, arc, w * 0.20, w * 0.12, 0.75, true);
     }
-    if (style !== 'buck' && style !== 'jagged') {
-      for (var j = 0; j < n - 1; j++) {
-        var b = this.box(w * 0.11, w * 0.13, w * 0.08, white, ((j / (n - 2)) - 0.5) * w * 0.85, -w * 0.26, 0);
-        g.add(b);
+    if (style !== 'buck') {
+      var m2 = style === 'jagged' ? 6 : 5;
+      for (var j = 0; j < m2; j++) {
+        var f2 = j / (m2 - 1), x2 = (f2 - 0.5) * w * 0.72;
+        var arc2 = -Math.abs(f2 - 0.5) * w * 0.20;
+        tooth(x2, -w * 0.32, arc2, style === 'jagged' ? w * 0.26 : w * 0.16,
+              w * 0.11, 0.72, false);
       }
     }
-    return g;
+    return this.mesh(this.merge(parts), mat);
   },
 
-  /** Two eyes with dark pupils and a faint self-lit sclera. */
-  eyes: function (r, col, spread, z, y, glow) {
+  /** A pair of eyes set into their sockets. */
+  eyes: function (r, iris, spread, z, y, glow, lidMat) {
     var g = new THREE.Group();
-    var white = this.plain(col, 0.25, 0, glow ? col : null, glow ? 0.45 : 0);
-    var pupil = this.plain(0x08070a, 0.3, 0);
+    lidMat = lidMat || this.plain(0x2a2028, 0.85, 0);
     for (var s = -1; s <= 1; s += 2) {
-      var e = this.ball(r, white, s * spread, y, z, 16);
-      var p = this.ball(r * 0.44, pupil, s * spread * 1.02, y, z + r * 0.72, 12);
-      g.add(e); g.add(p);
+      var e = this.eyeUnit(r, iris, lidMat);
+      e.position.set(s * spread, y, z);
+      e.rotation.y = s * 0.13;                 // eyes toe outward slightly
+      g.add(e);
     }
     return g;
   },
-
-  /* ═══════════════ humans ═══════════════ */
   human: function (look) {
     var M = PP.M, g = new THREE.Group();
     var skin = this.plain(new THREE.Color(look.skin).getHex(), 0.78, 0);
@@ -147,24 +285,32 @@ PP.Models = {
     head.add(skull);
     head.add(this.mesh(new THREE.SphereGeometry(3.45, 18, 12, 0, 6.2832, 0, 1.25),
                        this.plain(new THREE.Color(look.hair || '#2a1d14').getHex(), 0.9, 0), 0, 0.35, 0));
-    var eyes = this.eyes(0.62, 0xf4f4f4, 1.25, 3.0, 0.35, false);
+    var eyes = this.eyes(0.62, 0x4a3320, 1.25, 3.0, 0.35, false);
     head.add(eyes);
     head.add(this.mesh(new THREE.ConeGeometry(0.55, 1.3, 8), skin, 0, -0.35, 3.15));
     head.children[head.children.length - 1].rotation.x = Math.PI / 2;
     this.addHat(head, look.hat, look.hatCol);
     rig.hatSlot = head;
 
-    // arms and legs
-    rig.armL = this.limb(10.5, 1.15, 0.95, body, skin, 1.25);
-    rig.armR = this.limb(10.5, 1.15, 0.95, body, skin, 1.25);
-    rig.armL.position.set(-4.6, 8.2, 0); rig.armR.position.set(4.6, 8.2, 0);
+    // arms and legs, with elbows and knees
+    var mkArm = function (self) {
+      return self.limb2({ upper: 5.4, lower: 5.1, r0: 1.25, r1: 1.0, r2: 0.88, mat: body,
+                          end: self.handMesh(1.15, 1.6, skin, 0.3) });
+    };
+    rig.armL = mkArm(this); rig.armR = mkArm(this);
+    rig.armL.position.set(-4.5, 8.2, 0); rig.armR.position.set(4.5, 8.2, 0);
     rig.armL.rotation.z = 0.16; rig.armR.rotation.z = -0.16;
     hips.add(rig.armL); hips.add(rig.armR);
 
-    rig.legL = this.limb(13, 1.5, 1.15, legMat, this.plain(0x1a1a20, 0.7, 0), 1.5);
-    rig.legR = this.limb(13, 1.5, 1.15, legMat, this.plain(0x1a1a20, 0.7, 0), 1.5);
+    var boot = this.plain(0x1a1a20, 0.62, 0.05);
+    var mkLeg = function (self) {
+      return self.limb2({ upper: 6.7, lower: 6.3, r0: 1.6, r1: 1.25, r2: 1.05, mat: legMat,
+                          end: self.footMesh(1.5, boot) });
+    };
+    rig.legL = mkLeg(this); rig.legR = mkLeg(this);
     rig.legL.position.set(-1.9, 0, 0); rig.legR.position.set(1.9, 0, 0);
     hips.add(rig.legL); hips.add(rig.legR);
+    rig.jointed = true;
 
     rig.height = 28;
     rig.eyeHeight = 25.5;
@@ -222,91 +368,161 @@ PP.Models = {
    * Shared scaffolding. Every length is a fraction of the toy's total height,
    * so each one frames identically in a portrait and scales as one piece.
    */
+  /**
+   * Shared scaffolding. Every length is a fraction of the toy's total height,
+   * so each one frames identically in a portrait and scales as one piece.
+   * Limbs have real elbows and knees, and end in hands and feet.
+   */
   baseToy: function (def) {
     var L = def.look, M = PP.M, g = new THREE.Group();
     var H = L.h * M;
     var fur = this.plush(new THREE.Color(L.fur).getHex());
+    var furDark = this.plush(new THREE.Color(L.fur).multiplyScalar(0.62).getHex());
     var belly = this.plush(new THREE.Color(L.belly).getHex());
-    var lip = this.plain(new THREE.Color(L.lip).getHex(), 0.55, 0);
+    var lip = this.plain(new THREE.Color(L.lip).getHex(), 0.62, 0);
     var legLen = H * L.leg, torsoH = H * L.torso, torsoR = H * L.tr;
     var armLen = H * L.arm, limbR = H * L.limbR;
-    var rig = { root: g, fur: fur, belly: belly, lip: lip, height: H };
+    var rig = { root: g, fur: fur, furDark: furDark, belly: belly, lip: lip, height: H };
 
     var hips = new THREE.Group(); hips.position.y = legLen; g.add(hips); rig.hips = hips;
 
-    var torso = this.cap(torsoR, torsoH - torsoR, fur, 0, torsoH / 2, 0);
-    torso.scale.set(1, 1, 0.85);
+    // torso: pelvis, ribcage and a chest that tapers, not one capsule
+    var body = [];
+    body.push({ g: new THREE.SphereGeometry(torsoR * 0.92, 20, 14),
+                m: this.xf(0, torsoR * 0.15, 0, 0, 0, 0, 1, 0.85, 0.82) });
+    body.push({ g: new THREE.CylinderGeometry(torsoR * 0.98, torsoR * 0.88, torsoH * 0.72, 20),
+                m: this.xf(0, torsoH * 0.44, 0, 0, 0, 0, 1, 1, 0.82) });
+    body.push({ g: new THREE.SphereGeometry(torsoR * 1.02, 20, 14),
+                m: this.xf(0, torsoH * 0.80, 0, 0, 0, 0, 1, 0.78, 0.82) });
+    var torso = this.mesh(this.merge(body), fur);
     hips.add(torso);
     rig.torso = torso;
 
-    var bel = this.ball(torsoR * 0.7, belly, 0, torsoH * 0.45, torsoR * 0.55, 18);
-    bel.scale.set(0.92, 1.2, 0.5);
+    // a sewn-on belly patch, slightly proud of the body
+    var bel = this.mesh(new THREE.SphereGeometry(torsoR * 0.66, 20, 14), belly);
+    bel.position.set(0, torsoH * 0.42, torsoR * 0.44);
+    bel.scale.set(0.95, 1.25, 0.42);
     hips.add(bel);
 
+    // shoulders and neck
+    for (var sd = -1; sd <= 1; sd += 2) {
+      var del = this.mesh(new THREE.SphereGeometry(torsoR * 0.42, 14, 10), fur);
+      del.position.set(sd * torsoR * 1.0, torsoH * 0.86, 0);
+      del.scale.set(1, 0.9, 0.9);
+      hips.add(del);
+    }
+    var neck = this.mesh(new THREE.CylinderGeometry(torsoR * 0.42, torsoR * 0.52,
+                                                    H * L.head * 0.45, 14), furDark);
+    neck.position.y = torsoH + H * L.head * 0.14;
+    hips.add(neck);
+
     var head = new THREE.Group();
-    head.position.y = torsoH + H * L.head * 0.72;
+    head.position.y = torsoH + H * L.head * 0.78;
     hips.add(head); rig.head = head;
 
-    rig.armL = this.limb(armLen, limbR, limbR * 0.85, fur, fur, limbR * 1.5);
-    rig.armR = this.limb(armLen, limbR, limbR * 0.85, fur, fur, limbR * 1.5);
-    // held clear of the torso, or they vanish into the silhouette
-    rig.armL.position.set(-torsoR * 1.45, torsoH * 0.88, 0);
-    rig.armR.position.set(torsoR * 1.45, torsoH * 0.88, 0);
-    rig.armL.rotation.z = 0.22; rig.armR.rotation.z = -0.22;
+    var handR = limbR * 1.5;
+    rig.armL = this.limb2({ upper: armLen * 0.52, lower: armLen * 0.48,
+                            r0: limbR * 1.15, r1: limbR * 0.92, r2: limbR * 0.8, mat: fur,
+                            end: this.handMesh(handR, def.build === 'huggy' ? 3.4 : 2.2, fur, 0.2) });
+    rig.armR = this.limb2({ upper: armLen * 0.52, lower: armLen * 0.48,
+                            r0: limbR * 1.15, r1: limbR * 0.92, r2: limbR * 0.8, mat: fur,
+                            end: this.handMesh(handR, def.build === 'huggy' ? 3.4 : 2.2, fur, 0.2) });
+    rig.armL.position.set(-torsoR * 1.35, torsoH * 0.86, 0);
+    rig.armR.position.set(torsoR * 1.35, torsoH * 0.86, 0);
+    rig.armL.rotation.z = 0.18; rig.armR.rotation.z = -0.18;
     hips.add(rig.armL); hips.add(rig.armR);
 
-    rig.legL = this.limb(legLen, limbR * 1.15, limbR * 0.95, fur, fur, limbR * 1.7);
-    rig.legL.position.set(-torsoR * 0.5, 0, 0);
-    rig.legR = this.limb(legLen, limbR * 1.15, limbR * 0.95, fur, fur, limbR * 1.7);
-    rig.legR.position.set(torsoR * 0.5, 0, 0);
+    rig.legL = this.limb2({ upper: legLen * 0.52, lower: legLen * 0.48,
+                            r0: limbR * 1.45, r1: limbR * 1.1, r2: limbR * 0.92, mat: fur,
+                            end: this.footMesh(limbR * 1.6, furDark) });
+    rig.legR = this.limb2({ upper: legLen * 0.52, lower: legLen * 0.48,
+                            r0: limbR * 1.45, r1: limbR * 1.1, r2: limbR * 0.92, mat: fur,
+                            end: this.footMesh(limbR * 1.6, furDark) });
+    rig.legL.position.set(-torsoR * 0.52, 0, 0);
+    rig.legR.position.set(torsoR * 0.52, 0, 0);
     hips.add(rig.legL); hips.add(rig.legR);
 
     rig.eyeHeight = legLen + torsoH + H * L.head * 0.6;
     rig.headR = H * L.head;
+    rig.jointed = true;
     return rig;
   },
 
-  /** A round head with eyes and, optionally, a mouth full of teeth. */
+  /**
+   * A head with a brow, a muzzle, set-in eyes and a mouth that has a gum line,
+   * a throat and a tongue behind the teeth.
+   */
   toyHead: function (rig, def, r, opts) {
     var L = def.look, head = rig.head;
     opts = opts || {};
-    var skull = this.ball(r, rig.fur, 0, 0, 0, 24);
-    skull.scale.set(1, opts.squash || 1, 1);
-    head.add(skull);
-    head.add(this.eyes(r * 0.30, new THREE.Color(L.eye).getHex(), r * 0.44, r * 0.80, r * 0.26, true));
+
+    var skull = [];
+    skull.push({ g: new THREE.SphereGeometry(r, 26, 20),
+                 m: this.xf(0, 0, 0, 0, 0, 0, 1, opts.squash || 1, 1) });
+    // brow ridge and a slight muzzle, so the face is not a ball
+    skull.push({ g: new THREE.SphereGeometry(r * 0.52, 16, 12),
+                 m: this.xf(0, r * 0.20, r * 0.62, 0, 0, 0, 1.5, 0.5, 0.75) });
+    if (opts.muzzle !== false) {
+      skull.push({ g: new THREE.SphereGeometry(r * 0.62, 18, 14),
+                   m: this.xf(0, -r * 0.16, r * 0.52, 0, 0, 0, 1.15, 0.85, 0.9) });
+    }
+    head.add(this.mesh(this.merge(skull), rig.fur));
+
+    var eyeR = r * 0.27;
+    var eyes = this.eyes(eyeR, new THREE.Color(L.eye).getHex(), r * 0.44, r * 0.86, r * 0.26,
+                         true, rig.fur);
+    head.add(eyes);
+    rig.eyes = eyes;
+    // sockets: a darker rim so the eyes sit in the head instead of on it
+    for (var s = -1; s <= 1; s += 2) {
+      var socket = this.mesh(new THREE.TorusGeometry(eyeR * 1.12, eyeR * 0.28, 8, 18), rig.furDark);
+      socket.position.set(s * r * 0.44, r * 0.26, r * 0.80);
+      socket.scale.z = 0.6;
+      head.add(socket);
+    }
 
     if (L.teeth && L.teeth !== 'none') {
-      var mw = r * (opts.mouthW || 1.15);
-      var lipRing = this.mesh(new THREE.TorusGeometry(mw * 0.44, mw * 0.10, 10, 24), rig.lip,
-                              0, -r * 0.26, r * 0.80);
-      lipRing.scale.set(1, opts.mouthSquash || 0.62, 1);
-      head.add(lipRing);
-      var maw = this.ball(mw * 0.42, this.plain(0x140a0c, 0.9, 0), 0, -r * 0.26, r * 0.80, 14);
-      maw.scale.set(1, opts.mouthSquash || 0.62, 0.32);
+      var mw = r * (opts.mouthW || 1.15), my = -r * 0.30, mz = r * 0.72;
+      var squash = opts.mouthSquash || 0.62;
+      // gum line
+      var gum = this.mesh(new THREE.TorusGeometry(mw * 0.46, mw * 0.13, 12, 26), rig.lip);
+      gum.position.set(0, my, mz);
+      gum.scale.set(1, squash, 0.75);
+      head.add(gum);
+      // throat
+      var maw = this.mesh(new THREE.SphereGeometry(mw * 0.44, 16, 12), this.plain(0x120a0d, 0.95, 0));
+      maw.position.set(0, my, mz - mw * 0.10);
+      maw.scale.set(0.98, squash, 0.55);
       head.add(maw);
-      var t = this.teeth(L.teeth, mw * 0.74, rig.lip);   // in front of the maw, not inside it
-      t.position.set(0, -r * 0.26, r * 0.94);
+      // tongue
+      var tongue = this.mesh(new THREE.SphereGeometry(mw * 0.26, 14, 10), this.plain(0x8c3a4a, 0.75, 0));
+      tongue.position.set(0, my - mw * 0.12 * squash, mz - mw * 0.02);
+      tongue.scale.set(1.0, 0.32, 0.85);
+      head.add(tongue);
+
+      var t = this.teethMesh(L.teeth, mw * 1.02, this.plain(0xf6f2e6, 0.34, 0));
+      t.position.set(0, my, mz + mw * 0.18);
       head.add(t);
       rig.mouth = t;
     } else {
-      var smile = this.mesh(new THREE.TorusGeometry(r * 0.40, r * 0.055, 8, 20, Math.PI), rig.lip,
-                            0, -r * 0.10, r * 0.90);
+      var smile = this.mesh(new THREE.TorusGeometry(r * 0.40, r * 0.06, 10, 22, Math.PI), rig.lip);
+      smile.position.set(0, -r * 0.12, r * 0.86);
       smile.rotation.z = Math.PI;
       head.add(smile);
     }
 
     if (L.ears) {
-      for (var s = -1; s <= 1; s += 2) {
+      for (var e = -1; e <= 1; e += 2) {
         var tall = def.build === 'bunzo';
-        var ear = tall ? this.cap(r * 0.17, r * 1.5, rig.fur, s * r * 0.38, r * 1.3, -r * 0.1)
-                       : this.mesh(new THREE.ConeGeometry(r * 0.36, r * 0.8, 4), rig.fur,
-                                   s * r * 0.62, r * 0.86, 0);
-        if (tall) ear.rotation.z = s * 0.16;
+        var ear = tall ? this.cap(r * 0.17, r * 1.5, rig.fur, e * r * 0.38, r * 1.3, -r * 0.1)
+                       : this.mesh(new THREE.ConeGeometry(r * 0.36, r * 0.8, 5), rig.fur,
+                                   e * r * 0.62, r * 0.86, 0);
+        if (tall) ear.rotation.z = e * 0.16;
         head.add(ear);
-        var inner = tall ? this.cap(r * 0.08, r * 1.1, rig.belly, s * r * 0.38, r * 1.3, r * 0.03)
-                         : this.mesh(new THREE.ConeGeometry(r * 0.21, r * 0.55, 4), rig.belly,
-                                     s * r * 0.62, r * 0.88, r * 0.07);
-        if (tall) inner.rotation.z = s * 0.16;
+        var inner = tall ? this.cap(r * 0.08, r * 1.1, rig.belly, e * r * 0.38, r * 1.3, r * 0.03)
+                         : this.mesh(new THREE.ConeGeometry(r * 0.21, r * 0.55, 5), rig.belly,
+                                     e * r * 0.62, r * 0.88, r * 0.07);
+        if (tall) inner.rotation.z = e * 0.16;
         head.add(inner);
       }
     }
@@ -314,9 +530,10 @@ PP.Models = {
     return rig;
   },
 
+
   mon_huggy: function (def) {
     var rig = this.baseToy(def);
-    this.toyHead(rig, def, rig.headR, { mouthW: 1.4, mouthSquash: 0.72 });
+    this.toyHead(rig, def, rig.headR, { mouthW: 1.02, mouthSquash: 0.70 });
     rig.armSwing = 1.15;
     rig.idleSway = 0.5;
     return rig;
@@ -353,7 +570,7 @@ PP.Models = {
 
   mon_catnap: function (def) {
     var rig = this.baseToy(def), r = rig.headR, H = rig.height;
-    this.toyHead(rig, def, r, { mouthW: 1.3, mouthSquash: 0.55 });
+    this.toyHead(rig, def, r, { mouthW: 1.0, mouthSquash: 0.58 });
     var wm = this.plain(0xe8e0f5, 0.6, 0);
     for (var s = -1; s <= 1; s += 2) for (var i = 0; i < 3; i++) {
       var w = this.tube(H * 0.004, H * 0.004, r * 0.8, wm,
@@ -439,7 +656,7 @@ PP.Models = {
     var head = new THREE.Group(); head.position.y = torsoH * 1.35 + r * 0.7; top.add(head);
     rig.head = head;
     rig.headR = r;
-    this.toyHead(rig, def, r, { mouthW: 1.5, mouthSquash: 0.8 });
+    this.toyHead(rig, def, r, { mouthW: 1.15, mouthSquash: 0.8 });
     for (var s2 = -1; s2 <= 1; s2 += 2) {   // jester horns
       var horn = this.mesh(new THREE.ConeGeometry(r * 0.26, r * 1.0, 8), rig.lip,
                            s2 * r * 0.62, r * 0.85, 0);

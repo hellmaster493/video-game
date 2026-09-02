@@ -236,19 +236,45 @@ PP.Tex = {
         hh.fillStyle = '#4a4a4a'; hh.fillRect(0, 0, S, 5); hh.fillRect(0, S - 5, S, 5);
         break;
 
-      case 'plush':                        // monster fabric
-        this.fill(alb, '#b4b4b4'); this.fill(h, '#8a8a8a');
-        for (i = 0; i < 9000; i++) {
-          var fx = rnd() * S, fy = rnd() * S, fa = rnd() * 6.2832;
-          a.strokeStyle = rnd() < 0.5 ? 'rgba(255,255,255,.24)' : 'rgba(0,0,0,.20)';
-          a.lineWidth = 1;
+      case 'plush': {                      // short-pile fabric
+        this.fill(alb, '#b0b0b0'); this.fill(h, '#808080');
+        rough = this.cv(S);
+        var rr = rough.getContext('2d');
+        this.fill(rough, '#d8d8d8');        // fabric is rough almost everywhere
+        // clumps of pile, so the nap is not uniform noise
+        this.blobs(alb, rnd, 150, 8, 34, ['#bdbdbd', '#a2a2a2', '#b6b6b6'], 0.42);
+        this.blobs(rough, rnd, 120, 10, 40, ['#eaeaea', '#c4c4c4'], 0.5);
+        for (i = 0; i < 26000; i++) {
+          var fx = rnd() * S, fy = rnd() * S;
+          // fibres lie in a loosely shared direction, like brushed pile
+          var fa = (fy / S) * 0.9 + rnd() * 1.5 - 0.2;
+          var len = 2 + rnd() * 4;
+          var lit = rnd() < 0.5;
+          a.strokeStyle = lit ? 'rgba(255,255,255,.13)' : 'rgba(0,0,0,.15)';
+          a.lineWidth = rnd() < 0.15 ? 1.6 : 1;
           a.beginPath(); a.moveTo(fx, fy);
-          a.lineTo(fx + Math.cos(fa) * 4, fy + Math.sin(fa) * 4); a.stroke();
-          hh.strokeStyle = rnd() < 0.5 ? 'rgba(255,255,255,.30)' : 'rgba(0,0,0,.30)';
+          a.lineTo(fx + Math.cos(fa) * len, fy + Math.sin(fa) * len); a.stroke();
+          hh.strokeStyle = lit ? 'rgba(255,255,255,.34)' : 'rgba(0,0,0,.34)';
+          hh.lineWidth = a.lineWidth;
           hh.beginPath(); hh.moveTo(fx, fy);
-          hh.lineTo(fx + Math.cos(fa) * 4, fy + Math.sin(fa) * 4); hh.stroke();
+          hh.lineTo(fx + Math.cos(fa) * len, fy + Math.sin(fa) * len); hh.stroke();
+        }
+        // a stitched seam: the giveaway that something is sewn rather than moulded
+        var seamY = S * 0.5;
+        a.strokeStyle = 'rgba(0,0,0,.30)'; a.lineWidth = 3;
+        a.beginPath(); a.moveTo(0, seamY); a.lineTo(S, seamY); a.stroke();
+        hh.strokeStyle = 'rgba(0,0,0,.55)'; hh.lineWidth = 4;
+        hh.beginPath(); hh.moveTo(0, seamY); hh.lineTo(S, seamY); hh.stroke();
+        for (i = 0; i < S; i += 9) {
+          a.strokeStyle = 'rgba(255,255,255,.30)'; a.lineWidth = 2;
+          a.beginPath(); a.moveTo(i + 1, seamY - 3); a.lineTo(i + 5, seamY + 3); a.stroke();
+          hh.strokeStyle = 'rgba(255,255,255,.65)';
+          hh.beginPath(); hh.moveTo(i + 1, seamY - 3); hh.lineTo(i + 5, seamY + 3); hh.stroke();
+          rr.strokeStyle = 'rgba(120,120,120,.8)'; rr.lineWidth = 2;
+          rr.beginPath(); rr.moveTo(i + 1, seamY - 3); rr.lineTo(i + 5, seamY + 3); rr.stroke();
         }
         break;
+      }
 
       case 'cloth':                        // staff overalls
         this.fill(alb, '#bcbcbc'); this.fill(h, '#8a8a8a');
@@ -268,10 +294,71 @@ PP.Tex = {
 
     var set = {
       map: this.tex(alb),
-      normalMap: this.tex(this.normalFromHeight(h, name === 'carpet' || name === 'plush' ? 1.2 : 3.2))
+      normalMap: this.tex(this.normalFromHeight(h, name === 'carpet' ? 1.2 : name === 'plush' ? 2.0 : 3.2)),
+      roughnessMap: rough ? this.tex(rough) : null
     };
     this.cache[name] = set;
     return set;
+  },
+
+  /**
+   * A whole eye on one texture — sclera, veins, limbal ring, fibrous iris,
+   * pupil. One mesh per eye instead of four, and it reads far better than
+   * stacked spheres.
+   */
+  eyeTex: function (iris) {
+    var key = 'eye' + iris;
+    if (this.cache[key]) return this.cache[key];
+    var S = 256, c = this.cv(S), x = c.getContext('2d');
+    var rnd = PP.rng(iris | 0);
+    x.fillStyle = '#f2efe8'; x.fillRect(0, 0, S, S);
+    // a faint warm shadow toward the corners of the sclera
+    var sg = x.createRadialGradient(S / 2, S / 2, S * 0.18, S / 2, S / 2, S * 0.62);
+    sg.addColorStop(0, 'rgba(255,255,255,0)');
+    sg.addColorStop(1, 'rgba(196,176,166,.85)');
+    x.fillStyle = sg; x.fillRect(0, 0, S, S);
+    // veins
+    for (var v = 0; v < 26; v++) {
+      var a0 = rnd() * 6.2832, r0 = S * (0.30 + rnd() * 0.2);
+      x.strokeStyle = 'rgba(196,72,72,' + (0.10 + rnd() * 0.16) + ')';
+      x.lineWidth = 0.7 + rnd();
+      x.beginPath();
+      x.moveTo(S / 2 + Math.cos(a0) * r0, S / 2 + Math.sin(a0) * r0);
+      for (var seg = 0; seg < 4; seg++) {
+        r0 -= S * 0.035;
+        a0 += (rnd() - 0.5) * 0.7;
+        x.lineTo(S / 2 + Math.cos(a0) * r0, S / 2 + Math.sin(a0) * r0);
+      }
+      x.stroke();
+    }
+    var col = new THREE.Color(iris);
+    var R = S * 0.30;
+    // iris body, darker at the rim
+    var ig = x.createRadialGradient(S / 2, S / 2, R * 0.25, S / 2, S / 2, R);
+    ig.addColorStop(0, '#' + col.clone().multiplyScalar(1.5).getHexString());
+    ig.addColorStop(0.65, '#' + col.getHexString());
+    ig.addColorStop(1, '#' + col.clone().multiplyScalar(0.42).getHexString());
+    x.fillStyle = ig;
+    x.beginPath(); x.arc(S / 2, S / 2, R, 0, 6.2832); x.fill();
+    // radial fibres
+    for (var f = 0; f < 200; f++) {
+      var fa = rnd() * 6.2832, r1 = R * (0.28 + rnd() * 0.2), r2 = R * (0.75 + rnd() * 0.24);
+      x.strokeStyle = rnd() < 0.5 ? 'rgba(255,255,255,.22)' : 'rgba(0,0,0,.26)';
+      x.lineWidth = 0.9;
+      x.beginPath();
+      x.moveTo(S / 2 + Math.cos(fa) * r1, S / 2 + Math.sin(fa) * r1);
+      x.lineTo(S / 2 + Math.cos(fa) * r2, S / 2 + Math.sin(fa) * r2);
+      x.stroke();
+    }
+    // limbal ring — the dark band that makes an eye read as an eye
+    x.strokeStyle = 'rgba(10,8,14,.85)'; x.lineWidth = R * 0.16;
+    x.beginPath(); x.arc(S / 2, S / 2, R * 0.94, 0, 6.2832); x.stroke();
+    x.fillStyle = '#07060a';
+    x.beginPath(); x.arc(S / 2, S / 2, R * 0.44, 0, 6.2832); x.fill();
+    var t = new THREE.CanvasTexture(c);
+    t.anisotropy = this.aniso;
+    this.cache[key] = t;
+    return t;
   },
 
   /** Soft gradient for the volumetric cones under ceiling lights. */
@@ -332,7 +419,8 @@ PP.Tex = {
   mat: function (name, opts) {
     opts = opts || {};
     var set = this.build(name);
-    var m = new THREE.MeshStandardMaterial({
+    var Ctor = opts.sheen ? THREE.MeshPhysicalMaterial : THREE.MeshStandardMaterial;
+    var m = new Ctor({
       map: set.map.clone(),
       normalMap: set.normalMap.clone(),
       roughness: opts.roughness == null ? 0.85 : opts.roughness,
@@ -340,10 +428,21 @@ PP.Tex = {
       color: opts.color == null ? 0xffffff : opts.color,
       side: opts.side || THREE.FrontSide
     });
+    if (set.roughnessMap) {
+      m.roughnessMap = set.roughnessMap.clone();
+      m.roughnessMap.needsUpdate = true;
+    }
     m.map.needsUpdate = m.normalMap.needsUpdate = true;
     var r = opts.repeat || 1;
     m.map.repeat.set(r, opts.repeatY || r);
     m.normalMap.repeat.set(r, opts.repeatY || r);
+    if (m.roughnessMap) m.roughnessMap.repeat.set(r, opts.repeatY || r);
+    // sheen is what makes velvet and short-pile plush read as fabric
+    if (opts.sheen) {
+      m.sheen = opts.sheen;
+      m.sheenRoughness = opts.sheenRoughness == null ? 0.85 : opts.sheenRoughness;
+      m.sheenColor = new THREE.Color(opts.sheenColor == null ? 0xffffff : opts.sheenColor);
+    }
     m.normalScale = new THREE.Vector2(opts.normal == null ? 1 : opts.normal,
                                       opts.normal == null ? 1 : opts.normal);
     m.envMapIntensity = opts.env == null ? 0.30 : opts.env;

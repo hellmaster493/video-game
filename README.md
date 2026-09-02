@@ -140,10 +140,22 @@ repaired, a third at five, both drawn from the ones you didn't pick.
 - **Volumetric light shafts** — a pool of additive cones reassigned to the
   nearest lit fittings. With the power out they are the strongest thing in the
   room.
-- **Characters** are built from primitives and rigged as hierarchies of joints —
-  hips, torso, head, four limbs — so a single walk cycle drives everyone. Every
-  toy's proportions are fractions of its own height, which is why they all frame
-  correctly in the cast screen and scale as one piece.
+- **Characters** are built from primitives and rigged as joint hierarchies, so a
+  single walk cycle drives everyone. Limbs have real elbows and knees that only
+  bend one way; hands have five jointed fingers and feet have toes; the torso is
+  a pelvis, ribcage and tapering chest rather than one capsule, with shoulders,
+  a neck and a sewn-on belly patch. Anything rigid — a whole hand, a mouth full
+  of teeth, a limb segment — is merged into one geometry, so the detail costs
+  draw calls it doesn't need to.
+- **Fabric.** The toys wear a `MeshPhysicalMaterial` with sheen, which is the
+  shading model for velvet and short-pile plush: it lights the fuzz at grazing
+  angles the way real fabric does. The texture underneath is a directional fibre
+  weave with a stitched seam and its own roughness map.
+- **Eyes** are a whole eye painted onto one sphere — sclera, veins, a fibrous
+  iris, a limbal ring and a pupil — under a clearcoat, set into fur lids and a
+  darker socket rim. Stacked white and black spheres never looked alive.
+- Every toy's proportions are fractions of its own height, which is why they all
+  frame correctly in the cast screen and scale as one piece.
 - **Lighting** is a pool of eleven point lights reassigned each frame to
   whichever ceiling fixtures are nearest, plus a single shadow-casting spotlight
   on the torch. The fittings sit recessed so they light the room rather than the

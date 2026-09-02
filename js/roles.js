@@ -57,7 +57,7 @@ PP.MONSTERS = [
     specialText: 'Locks onto a straight line and accelerates the longer it can see you.',
     speed: 62, sense: 340, hearing: 400, vent: false, reach: 46, patience: 1.0, silent: false,
     look: { fur: '#2f6fd0', belly: '#a8d0ff', eye: '#fff9c4', lip: '#e8443f',
-            h: 3.0, leg: 0.34, torso: 0.34, tr: 0.135, head: 0.165, arm: 0.56,
+            h: 3.0, leg: 0.34, torso: 0.32, tr: 0.135, head: 0.195, arm: 0.60,
             limbR: 0.030, teeth: 'wide' }
   },
   {

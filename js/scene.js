@@ -512,6 +512,14 @@ PP.Scene = {
       if (rig.armR) rig.armR.rotation.x = -swing * 0.9 + (rig.noodly ? Math.cos(e.animPhase * 1.7) * 0.2 : 0);
       if (rig.legL) rig.legL.rotation.x = -swing;
       if (rig.legR) rig.legR.rotation.x = swing;
+      // elbows and knees only bend one way, and knees bend on the back swing
+      if (rig.jointed) {
+        var elbow = 0.22 + amp * 0.30;
+        if (rig.armL.lower) rig.armL.lower.rotation.x = elbow + Math.max(0, swing) * 0.55;
+        if (rig.armR.lower) rig.armR.lower.rotation.x = elbow + Math.max(0, -swing) * 0.55;
+        if (rig.legL && rig.legL.lower) rig.legL.lower.rotation.x = Math.max(0, swing) * 1.05 + 0.04;
+        if (rig.legR && rig.legR.lower) rig.legR.lower.rotation.x = Math.max(0, -swing) * 1.05 + 0.04;
+      }
       if (rig.hips) {
         rig.hips.position.y = (rig.hips.userData.base == null
           ? (rig.hips.userData.base = rig.hips.position.y) : rig.hips.userData.base)
@@ -525,6 +533,8 @@ PP.Scene = {
       if (e.lunge > 0 && rig.armL) {
         var L = e.lunge / 0.35;
         rig.armL.rotation.x = -1.5 * L; rig.armR.rotation.x = -1.5 * L;
+        if (rig.armL.lower) rig.armL.lower.rotation.x = 0.25 * (1 - L);
+        if (rig.armR.lower) rig.armR.lower.rotation.x = 0.25 * (1 - L);
       }
       // you do not see your own body from inside your own head
       var firstPersonSelf = (e === game.player && !this.thirdPerson && game.mode !== 'monster');
