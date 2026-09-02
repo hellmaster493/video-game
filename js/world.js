@@ -137,23 +137,24 @@ PP.World = {
     var T = PP.TILE, i, j;
     for (i = 0; i < this.rooms.length; i++) {
       var r = this.rooms[i];
-      var stepX = Math.max(6, Math.round(r.w / Math.max(1, Math.round(r.w / 8))));
-      var stepY = Math.max(5, Math.round(r.h / Math.max(1, Math.round(r.h / 7))));
+      // a real factory grid is dense; sparse fittings leave the walls unlit
+      var stepX = Math.max(4, Math.round(r.w / Math.max(1, Math.round(r.w / 5))));
+      var stepY = Math.max(4, Math.round(r.h / Math.max(1, Math.round(r.h / 5))));
       for (var ly = r.y + Math.floor(stepY / 2); ly < r.y + r.h; ly += stepY)
         for (var lx = r.x + Math.floor(stepX / 2); lx < r.x + r.w; lx += stepX)
-          this.lamps.push({ x: lx * T + T / 2, y: ly * T + T / 2, r: 210,
-                            dead: rnd() < 0.12, emg: rnd() < 0.34, ph: rnd() * 6.28 });
+          this.lamps.push({ x: lx * T + T / 2, y: ly * T + T / 2, r: 300,
+                            dead: rnd() < 0.10, emg: rnd() < 0.30, ph: rnd() * 6.28 });
     }
     for (i = 0; i < PP.HALLS.length; i++) {
       var h = PP.HALLS[i];
       var horiz = h[2] >= h[3];
-      var n = Math.max(1, Math.floor((horiz ? h[2] : h[3]) / 5));
+      var n = Math.max(1, Math.floor((horiz ? h[2] : h[3]) / 4));
       for (j = 0; j < n; j++) {
         var f = (j + 0.5) / n;
         this.lamps.push({
           x: (h[0] + (horiz ? f * h[2] : h[2] / 2)) * T,
           y: (h[1] + (horiz ? h[3] / 2 : f * h[3])) * T,
-          r: 150, dead: rnd() < 0.2, emg: rnd() < 0.3, ph: rnd() * 6.28
+          r: 220, dead: rnd() < 0.18, emg: rnd() < 0.3, ph: rnd() * 6.28
         });
       }
     }

@@ -32,7 +32,7 @@
     if (g.running && !g.paused && !g.over) g.update(dt);
     if (g.player && PP.Scene.ready) {
       PP.Scene.update(g, dt);
-      PP.Scene.render();
+      PP.Scene.render(dt, g.player.fear || 0);
     }
 
     if (g.running) {

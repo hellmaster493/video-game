@@ -163,7 +163,7 @@ PP.Tex = {
         break;
 
       case 'ceiling':
-        this.fill(alb, '#83878f'); this.fill(h, '#909090');
+        this.fill(alb, '#63666d'); this.fill(h, '#909090');
         this.speckle(alb, rnd, 5000, ['rgba(0,0,0,.10)', 'rgba(255,255,255,.10)'], 3);
         this.speckle(h, rnd, 4000, ['rgba(0,0,0,.25)', 'rgba(255,255,255,.25)'], 3);
         a.strokeStyle = 'rgba(70,74,82,.5)'; a.lineWidth = 3;
@@ -272,6 +272,30 @@ PP.Tex = {
     };
     this.cache[name] = set;
     return set;
+  },
+
+  /** Soft gradient for the volumetric cones under ceiling lights. */
+  shaftTex: function () {
+    if (this._shaft) return this._shaft;
+    var c = document.createElement('canvas');
+    c.width = 32; c.height = 128;
+    var x = c.getContext('2d');
+    var g = x.createLinearGradient(0, 0, 0, 128);
+    g.addColorStop(0.00, 'rgba(255,244,222,0)');     // floor end, invisible
+    g.addColorStop(0.55, 'rgba(255,240,214,0.16)');
+    g.addColorStop(0.92, 'rgba(255,246,228,0.55)');
+    g.addColorStop(1.00, 'rgba(255,250,236,0.75)');  // right under the fitting
+    x.fillStyle = g; x.fillRect(0, 0, 32, 128);
+    // fade the cone's silhouette so the edges are not hard lines
+    var e = x.createLinearGradient(0, 0, 32, 0);
+    e.addColorStop(0, 'rgba(0,0,0,1)'); e.addColorStop(0.5, 'rgba(0,0,0,0)');
+    e.addColorStop(1, 'rgba(0,0,0,1)');
+    x.globalCompositeOperation = 'destination-out';
+    x.fillStyle = e; x.fillRect(0, 0, 32, 128);
+    var t = new THREE.CanvasTexture(c);
+    t.wrapS = THREE.RepeatWrapping;
+    this._shaft = t;
+    return t;
   },
 
   /**

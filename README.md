@@ -124,16 +124,36 @@ repaired, a third at five, both drawn from the ones you didn't pick.
   into an albedo map plus a normal map derived by Sobel from a matching height
   pass. Concrete, checker tile, carpet, painted wall, ceiling tile, brushed
   metal, floor grate, duct, wood, plush and cloth.
+- **Post-processing** is hand-rolled in `js/post.js`, because EffectComposer is
+  an addon and this ships no addons. The scene renders into a linear half-float
+  buffer, then: bright pass with a soft knee, two separable gaussian blur levels
+  for a tight halo and a wide glow, then one composite that does bloom, an ACES
+  filmic curve, a colour grade (cool shadows, warm highlights), vignette, film
+  grain and lens dispersion that widens as your character panics.
+- **Ambient occlusion is baked into the level's vertex colours** at build time.
+  A floor corner darkens for each solid tile touching it and wall faces darken
+  at the floor, which is what grounds the walls and reads the room corners —
+  free at runtime, and each quad is split along its shorter AO gradient so the
+  shading doesn't crease.
+- **Wall trim.** Every wall face gets a skirting board and a dado rail as
+  shallow ledges proud of the surface, so a wall is never one flat plane.
+- **Volumetric light shafts** — a pool of additive cones reassigned to the
+  nearest lit fittings. With the power out they are the strongest thing in the
+  room.
 - **Characters** are built from primitives and rigged as hierarchies of joints —
   hips, torso, head, four limbs — so a single walk cycle drives everyone. Every
   toy's proportions are fractions of its own height, which is why they all frame
   correctly in the cast screen and scale as one piece.
-- **Lighting** is a pool of nine point lights reassigned each frame to whichever
-  ceiling fixtures are nearest, plus a single shadow-casting spotlight on the
-  torch. With the power out only about a third of the tubes run on emergency
-  circuits, so the torch does the work.
+- **Lighting** is a pool of eleven point lights reassigned each frame to
+  whichever ceiling fixtures are nearest, plus a single shadow-casting spotlight
+  on the torch. The fittings sit recessed so they light the room rather than the
+  ceiling, and with the power out only about a third run on emergency circuits.
+  The fittings themselves are two instanced meshes, not sixty groups.
 - A small procedural environment map is generated with `PMREMGenerator` so
   metals and rough surfaces resolve instead of rendering black.
+- **Three quality presets** (Low / Medium / High) on the menu trade away
+  post-processing, shadows, light shafts and pixel ratio, so a weak machine
+  still gets a playable frame rate.
 
 ## Tokens
 
@@ -163,6 +183,7 @@ js/core.js      math, input and pointer lock, save data, WebAudio synth
 js/roles.js     cast, monsters, modes, emotes, shop items
 js/textures.js  procedural albedo + normal maps, environment map
 js/models.js    every character and prop, built from primitives
+js/post.js      bloom, tone mapping, colour grade, vignette, grain
 js/world.js     tiles, rooms, vents, collision, line-of-sight, A*
 js/minimap.js   the 2D floor plan overlay
 js/entities.js  player, GrabPack, staff NPCs, monster behaviour

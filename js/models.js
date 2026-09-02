@@ -111,7 +111,7 @@ PP.Models = {
   /** Two eyes with dark pupils and a faint self-lit sclera. */
   eyes: function (r, col, spread, z, y, glow) {
     var g = new THREE.Group();
-    var white = this.plain(col, 0.25, 0, glow ? col : null, glow ? 0.8 : 0);
+    var white = this.plain(col, 0.25, 0, glow ? col : null, glow ? 0.45 : 0);
     var pupil = this.plain(0x08070a, 0.3, 0);
     for (var s = -1; s <= 1; s += 2) {
       var e = this.ball(r, white, s * spread, y, z, 16);
@@ -204,7 +204,7 @@ PP.Models = {
         break;
       case 'bulb':
         head.add(this.box(6.6, 1.4, 1.2, this.plain(0x2c3444, 0.6, 0.2), 0, 2.4, 0));
-        head.add(this.ball(1.1, this.plain(0xfff6c9, 0.2, 0, 0xfff0b0, 2.2), 0, 2.4, 2.3, 14));
+        head.add(this.ball(1.1, this.plain(0xfff6c9, 0.2, 0, 0xfff0b0, 1.1), 0, 2.4, 2.3, 14));
         break;
     }
   },
@@ -520,8 +520,8 @@ PP.Models = {
   grabHand: function (side, gold) {
     var M = PP.M, g = new THREE.Group();
     var col = side === 'l' ? 0xe6404f : 0x3c7ff0;
-    var shell = this.plain(gold ? 0xffc94d : col, 0.35, gold ? 0.8 : 0.25);
-    var dark = this.plain(0x1b1f27, 0.6, 0.4);
+    var shell = this.plain(gold ? 0xffc94d : col, 0.62, gold ? 0.55 : 0.15);
+    var dark = this.plain(0x1b1f27, 0.75, 0.2);
     var palm = this.box(0.16 * M, 0.19 * M, 0.07 * M, shell, 0, 0, 0);
     g.add(palm);
     g.add(this.box(0.17 * M, 0.05 * M, 0.075 * M, dark, 0, -0.09 * M, 0));
@@ -537,7 +537,7 @@ PP.Models = {
   /* ═══════════════ props ═══════════════ */
   prop: function (p) {
     var M = PP.M, g = new THREE.Group(), self = this;
-    var steel = this.plain(0x767e8c, 0.4, 0.7);
+    var steel = this.plain(0x6a7280, 0.48, 0.30);   // painted cabinet steel, not chrome
     var dark = this.plain(0x252a33, 0.7, 0.3);
 
     switch (p.kind) {
@@ -545,7 +545,7 @@ PP.Models = {
         g.add(this.box(1.4 * M, 1.6 * M, 0.5 * M, steel, 0, 0.8 * M, 0));
         g.add(this.box(1.15 * M, 0.75 * M, 0.1 * M, dark, 0, 1.1 * M, 0.28 * M));
         var scr = this.box(1.0 * M, 0.5 * M, 0.04 * M,
-                           this.plain(0x14202c, 0.3, 0, 0xff5a4a, 0.6), 0, 1.14 * M, 0.34 * M);
+                           this.plain(0x14202c, 0.3, 0, 0xff5a4a, 0.35), 0, 1.14 * M, 0.34 * M);
         g.add(scr); g.screen = scr;
         g.add(this.box(1.5 * M, 0.12 * M, 0.6 * M, dark, 0, 0.06 * M, 0));
         for (var v = 0; v < 4; v++) {
@@ -559,10 +559,10 @@ PP.Models = {
         housing.rotation.x = Math.PI / 2;          // lay the disc face-on to +Z
         g.add(housing);
         var ring = this.mesh(new THREE.TorusGeometry(0.2 * M, 0.05 * M, 8, 22),
-                             this.plain(col, 0.35, 0.2, col, 1.4), 0, 0, 0.06 * M);
+                             this.plain(col, 0.35, 0.2, col, 0.8), 0, 0, 0.06 * M);
         g.add(ring); g.ring = ring;
         var core = this.mesh(new THREE.CylinderGeometry(0.11 * M, 0.11 * M, 0.14 * M, 16),
-                             this.plain(col, 0.3, 0.1, col, 2.2), 0, 0, 0.05 * M);
+                             this.plain(col, 0.3, 0.1, col, 1.1), 0, 0, 0.05 * M);
         core.rotation.x = Math.PI / 2;
         g.add(core); g.core = core;
         break;
@@ -571,7 +571,7 @@ PP.Models = {
         g.add(this.box(1.3 * M, 1.1 * M, 0.7 * M, this.plain(0x4a515f, 0.6, 0.4), 0, 0.55 * M, 0));
         g.add(this.box(1.34 * M, 0.1 * M, 0.74 * M, dark, 0, 1.1 * M, 0));
         var mon = this.box(0.95 * M, 0.6 * M, 0.06 * M,
-                           this.plain(0x0f1a24, 0.25, 0, 0x4fc3f7, 0.9), 0, 0.75 * M, 0.36 * M);
+                           this.plain(0x0f1a24, 0.25, 0, 0x4fc3f7, 0.5), 0, 0.75 * M, 0.36 * M);
         mon.rotation.x = -0.3;
         g.add(mon); g.screen = mon;
         for (var l = 0; l < 4; l++) {
@@ -621,14 +621,14 @@ PP.Models = {
         break;
       }
       case 'shelf': {
-        var sm2 = this.plain(0x5b6273, 0.55, 0.45);
+        var sm2 = this.plain(0x5b6273, 0.6, 0.25);
         g.add(this.box(2.4 * M, 0.09 * M, 0.8 * M, sm2, 0, 0.1 * M, 0));
         for (var lv = 1; lv <= 3; lv++) g.add(this.box(2.4 * M, 0.07 * M, 0.8 * M, sm2, 0, lv * 0.62 * M, 0));
         for (var pz = -1; pz <= 1; pz += 2) for (var px2 = -1; px2 <= 1; px2 += 2) {
           g.add(this.box(0.1 * M, 2.0 * M, 0.1 * M, sm2, px2 * 1.15 * M, 1.0 * M, pz * 0.35 * M));
         }
         var rnd2 = PP.rng(Math.floor((p.seed || 0.5) * 9999));
-        for (var b2 = 0; b2 < 12; b2++) {
+        for (var b2 = 0; b2 < 7; b2++) {
           var hue = Math.floor(rnd2() * 360);
           var toy = this.ball(0.16 * M, this.plush(new THREE.Color('hsl(' + hue + ',60%,55%)').getHex(), 0.95),
                               (rnd2() - 0.5) * 2.0 * M, (0.28 + Math.floor(rnd2() * 3) * 0.62) * M,
@@ -640,14 +640,14 @@ PP.Models = {
       case 'arcade': {
         g.add(this.box(0.9 * M, 1.8 * M, 0.8 * M, this.plain(0x39235c, 0.5, 0.2), 0, 0.9 * M, 0));
         var scr2 = this.box(0.7 * M, 0.55 * M, 0.06 * M,
-                            this.plain(0x120c20, 0.2, 0, 0xff5470, 1.1), 0, 1.3 * M, 0.4 * M);
+                            this.plain(0x120c20, 0.2, 0, 0xff5470, 0.6), 0, 1.3 * M, 0.4 * M);
         scr2.rotation.x = -0.25;
         g.add(scr2); g.screen = scr2;
         g.add(this.box(0.8 * M, 0.1 * M, 0.45 * M, this.plain(0x2a1a44, 0.6, 0.1), 0, 0.95 * M, 0.4 * M));
         g.add(this.ball(0.08 * M, this.plain(0xe6404f, 0.3, 0.1), -0.18 * M, 1.03 * M, 0.42 * M, 12));
         g.add(this.ball(0.08 * M, this.plain(0x3c7ff0, 0.3, 0.1), 0.18 * M, 1.03 * M, 0.42 * M, 12));
         g.add(this.box(0.86 * M, 0.3 * M, 0.1 * M,
-                       this.plain(0xffc94d, 0.3, 0, 0xffc94d, 0.7), 0, 1.75 * M, 0.36 * M));
+                       this.plain(0xffc94d, 0.3, 0, 0xffc94d, 0.45), 0, 1.75 * M, 0.36 * M));
         break;
       }
       case 'table': {
@@ -679,7 +679,7 @@ PP.Models = {
         g.add(this.box(2.2 * M, 0.09 * M, 1.1 * M, this.plain(0x4d5464, 0.55, 0.4), 0, 0.9 * M, 0));
         g.add(this.box(0.9 * M, 0.85 * M, 0.9 * M, this.plain(0x3b4150, 0.6, 0.3), -0.6 * M, 0.45 * M, 0));
         var cm = this.box(1.0 * M, 0.62 * M, 0.06 * M,
-                          this.plain(0x0d141c, 0.2, 0, 0x64b5f6, 0.9), 0.35 * M, 1.3 * M, -0.2 * M);
+                          this.plain(0x0d141c, 0.2, 0, 0x64b5f6, 0.5), 0.35 * M, 1.3 * M, -0.2 * M);
         cm.rotation.x = 0.12;
         g.add(cm); g.screen = cm;
         g.add(this.box(0.16 * M, 0.35 * M, 0.16 * M, this.plain(0x2b303b, 0.6, 0.3), 0.35 * M, 1.05 * M, -0.2 * M));
@@ -697,7 +697,7 @@ PP.Models = {
         break;
       }
       case 'decoy': {
-        var dm2 = this.plain(0xffc94d, 0.4, 0.3, 0xffc94d, 1.2);
+        var dm2 = this.plain(0xffc94d, 0.4, 0.3, 0xffc94d, 0.7);
         g.add(this.ball(0.24 * M, dm2, 0, 0.24 * M, 0, 14));
         g.add(this.box(0.1 * M, 0.1 * M, 0.34 * M, this.plain(0x8a5c00, 0.5, 0.5), 0, 0.24 * M, -0.24 * M));
         break;

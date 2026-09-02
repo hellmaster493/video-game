@@ -183,6 +183,14 @@ h2{letter-spacing:.16em;font-size:26px;margin-bottom:14px}
   color:var(--ink);font:inherit;font-size:15px;text-align:center;letter-spacing:.04em}
 .namefield input:focus{outline:none;border-color:var(--gold)}
 
+.gfx{display:flex;gap:6px;align-items:center;justify-content:center;margin:0 0 18px}
+.gfx span{color:var(--dim);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+  margin-right:6px}
+.qbtn{background:transparent;border:1px solid var(--line);color:var(--dim);padding:6px 14px;
+  border-radius:8px;cursor:pointer;font:inherit;font-size:11px;transition:.15s}
+.qbtn:hover{color:var(--ink);border-color:rgba(255,255,255,.28)}
+.qbtn.sel{background:rgba(255,201,77,.16);border-color:var(--gold);color:var(--gold)}
+
 .big{padding:14px 34px;border-radius:11px;border:0;cursor:pointer;font:inherit;font-weight:800;
   font-size:15px;letter-spacing:.14em;background:linear-gradient(180deg,#ffd66b,#f0a92e);
   color:#1a1204;box-shadow:0 8px 26px rgba(240,169,46,.28);transition:.15s}

@@ -66,7 +66,19 @@ PP.UI = {
   },
 
   /* ═════════ menu construction ═════════ */
-  buildMenu: function () { this.buildModes(); this.buildCast(); this.buildShop(); },
+  buildMenu: function () { this.buildModes(); this.buildCast(); this.buildShop(); this.buildQuality(); },
+
+  buildQuality: function () {
+    var S = PP.Save.data, self = this;
+    document.querySelectorAll('.qbtn').forEach(function (b) {
+      b.classList.toggle('sel', (S.gfx || 'high') === b.dataset.q);
+      b.onclick = function () {
+        S.gfx = b.dataset.q; PP.Save.flush(); PP.Audio.ui();
+        PP.Scene.applyQuality(S.gfx);
+        self.buildQuality();
+      };
+    });
+  },
 
   buildModes: function () {
     var host = document.getElementById('mode-list'), S = PP.Save.data, self = this;

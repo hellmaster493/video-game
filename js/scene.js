@@ -7,16 +7,24 @@
    ═══════════════════════════════════════════════════════════ */
 'use strict';
 
-PP.CEIL = 3.3 * PP.M;    // room ceiling height
+PP.CEIL = 3.9 * PP.M;    // room ceiling height — industrial, not domestic
 PP.VENT_H = 1.15 * PP.M; // duct ceiling — you are crawling in there
 
 /* ── a tiny geometry builder, since BufferGeometryUtils is an addon ── */
-function Geo() { this.p = []; this.n = []; this.u = []; this.i = []; }
-Geo.prototype.quad = function (a, b, c, d, nx, ny, nz, uvs) {
+function Geo() { this.p = []; this.n = []; this.u = []; this.c = []; this.i = []; }
+/** ao is four corner brightnesses (0..1) baked into vertex colour. */
+Geo.prototype.quad = function (a, b, c, d, nx, ny, nz, uvs, ao) {
   var base = this.p.length / 3;
   [a, b, c, d].forEach(function (v) { this.p.push(v[0], v[1], v[2]); this.n.push(nx, ny, nz); }, this);
   this.u.push(uvs[0], uvs[1], uvs[2], uvs[3], uvs[4], uvs[5], uvs[6], uvs[7]);
-  this.i.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  ao = ao || [1, 1, 1, 1];
+  for (var k = 0; k < 4; k++) this.c.push(ao[k], ao[k], ao[k]);
+  // split the quad along the shorter AO gradient so the shading doesn't crease
+  if (Math.abs(ao[0] - ao[2]) > Math.abs(ao[1] - ao[3])) {
+    this.i.push(base, base + 1, base + 3, base + 1, base + 2, base + 3);
+  } else {
+    this.i.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  }
 };
 Geo.prototype.empty = function () { return this.p.length === 0; };
 Geo.prototype.finish = function () {
@@ -24,6 +32,7 @@ Geo.prototype.finish = function () {
   g.setAttribute('position', new THREE.Float32BufferAttribute(this.p, 3));
   g.setAttribute('normal', new THREE.Float32BufferAttribute(this.n, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(this.u, 2));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(this.c, 3));
   g.setIndex(this.i);
   g.computeBoundingSphere();
   return g;
@@ -41,7 +50,6 @@ PP.Scene = {
     var r = this.renderer = new THREE.WebGLRenderer({
       canvas: canvas, antialias: true, powerPreference: 'high-performance'
     });
-    r.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     r.shadowMap.enabled = true;
     r.shadowMap.type = THREE.PCFSoftShadowMap;
     r.outputEncoding = THREE.sRGBEncoding;
@@ -49,10 +57,14 @@ PP.Scene = {
     r.toneMappingExposure = 1.0;
     r.physicallyCorrectLights = false;   // intensities below are plain multipliers
 
+
     this.scene = new THREE.Scene();
     this.scene.environment = PP.Tex.envMap(r);
     this.camera = new THREE.PerspectiveCamera(74, 1, 1, 3000);
     this.camera.rotation.order = 'YXZ';
+
+    PP.Post.init(r);
+    this.applyQuality((PP.Save.data && PP.Save.data.gfx) || 'high');
 
     this.shadowTex = this.makeBlobShadow();
     var self = this;
@@ -62,9 +74,42 @@ PP.Scene = {
 
   resize: function () {
     var w = window.innerWidth, h = window.innerHeight;
+    var dpr = Math.min(window.devicePixelRatio || 1, this.maxDpr || 2);
+    this.renderer.setPixelRatio(dpr);
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    PP.Post.resize(w, h, dpr);
+  },
+
+  /** Three presets, because a soft-rendered laptop should still be playable. */
+  applyQuality: function (level) {
+    var r = this.renderer;
+    this.quality = level;
+    if (level === 'low') {
+      this.maxDpr = 1; PP.Post.enabled = false;
+      r.shadowMap.enabled = false;
+      this.shaftsOn = false;
+    } else if (level === 'medium') {
+      this.maxDpr = 1.5; PP.Post.enabled = true;
+      PP.Post.params.bloom = 0.5;
+      r.shadowMap.enabled = true;
+      this.shadowSize = 512;
+      this.shaftsOn = true;
+    } else {
+      this.maxDpr = 2; PP.Post.enabled = true;
+      PP.Post.params.bloom = 0.62;
+      r.shadowMap.enabled = true;
+      this.shadowSize = 1024;
+      this.shaftsOn = true;
+    }
+    if (this.torch) {
+      this.torch.castShadow = r.shadowMap.enabled;
+      this.torch.shadow.mapSize.set(this.shadowSize || 1024, this.shadowSize || 1024);
+      if (this.torch.shadow.map) { this.torch.shadow.map.dispose(); this.torch.shadow.map = null; }
+    }
+    if (this.shafts) this.shafts.forEach(function (m) { m.visible = false; });
+    this.resize();
   },
 
   /** soft round blob used as a cheap contact shadow under every actor */
@@ -101,6 +146,45 @@ PP.Scene = {
     var ceilOf = function (tx, ty) {
       return W.at(tx, ty) === Tt.VENT ? PP.VENT_H : PP.CEIL;
     };
+    var solid = function (tx, ty) { return W.solid(tx, ty); };
+
+    /* Baked ambient occlusion. A floor corner darkens for each solid tile
+       touching it — that is what grounds the walls and reads room corners. */
+    function floorAO(tx, ty, sx, sz) {
+      var s1 = solid(tx + sx, ty), s2 = solid(tx, ty + sz);
+      var n = (s1 ? 1 : 0) + (s2 ? 1 : 0) + ((s1 && s2) ? 1 : (solid(tx + sx, ty + sz) ? 1 : 0));
+      return [1.0, 0.76, 0.58, 0.44][n];
+    }
+    /* Wall faces darken hard at the floor and softly at the ceiling. */
+    function wallAO(tx, ty, ax, az, top) {
+      var v = top ? 0.94 : 0.52;
+      if (solid(tx + ax, ty + az)) v *= 0.88;   // an inside corner with the next wall
+      return v;
+    }
+
+    /* Skirting board and dado rail: two shallow ledges proud of the wall.
+       Cheap geometry, but it stops every wall reading as one flat plane. */
+    function trim(at, a0, a1, axis, dir, skH, railY, railH, out) {
+      var g = bucket('trim');
+      function ledge(y0, y1) {
+        var o = at + dir * out;
+        if (axis === 'x') {
+          g.quad([o, y0, a1], [o, y1, a1], [o, y1, a0], [o, y0, a0],
+                 dir, 0, 0, [0, 0, 0, (y1 - y0) / 24, 2, (y1 - y0) / 24, 2, 0],
+                 [0.55, 0.95, 0.95, 0.55]);
+          g.quad([at, y1, a0], [o, y1, a0], [o, y1, a1], [at, y1, a1],
+                 0, 1, 0, [0, 0, 1, 0, 1, 1, 0, 1], [0.85, 1, 1, 0.85]);
+        } else {
+          g.quad([a0, y0, o], [a0, y1, o], [a1, y1, o], [a1, y0, o],
+                 0, 0, dir, [0, 0, 0, (y1 - y0) / 24, 2, (y1 - y0) / 24, 2, 0],
+                 [0.55, 0.95, 0.95, 0.55]);
+          g.quad([a0, y1, at], [a0, y1, o], [a1, y1, o], [a1, y1, at],
+                 0, 1, 0, [0, 0, 1, 0, 1, 1, 0, 1], [0.85, 1, 1, 0.85]);
+        }
+      }
+      ledge(0, skH);
+      ledge(railY, railY + railH);
+    }
 
     for (var ty = 0; ty < W.H; ty++) {
       for (var tx = 0; tx < W.W; tx++) {
@@ -111,12 +195,16 @@ PP.Scene = {
           // floor — UVs in tile units so the texture tiles seamlessly
           bucket(floorTex[t] || 'concrete').quad(
             [x0, 0, z0], [x0, 0, z1], [x1, 0, z1], [x1, 0, z0],
-            0, 1, 0, [tx, ty, tx, ty + 1, tx + 1, ty + 1, tx + 1, ty]);
+            0, 1, 0, [tx, ty, tx, ty + 1, tx + 1, ty + 1, tx + 1, ty],
+            [floorAO(tx, ty, -1, -1), floorAO(tx, ty, -1, 1),
+             floorAO(tx, ty, 1, 1), floorAO(tx, ty, 1, -1)]);
           // ceiling
           var ch = ceilOf(tx, ty);
           bucket(t === Tt.VENT ? 'duct' : 'ceiling').quad(
             [x0, ch, z1], [x0, ch, z0], [x1, ch, z0], [x1, ch, z1],
-            0, -1, 0, [tx, ty + 1, tx, ty, tx + 1, ty, tx + 1, ty + 1]);
+            0, -1, 0, [tx, ty + 1, tx, ty, tx + 1, ty, tx + 1, ty + 1],
+            [0.1 + 0.9 * floorAO(tx, ty, -1, 1), 0.1 + 0.9 * floorAO(tx, ty, -1, -1),
+             0.1 + 0.9 * floorAO(tx, ty, 1, -1), 0.1 + 0.9 * floorAO(tx, ty, 1, 1)]);
           continue;
         }
 
@@ -129,18 +217,24 @@ PP.Scene = {
           var h = ceilOf(nx, nz);
           var mat = nt === Tt.VENT ? 'duct' : 'wall';
           var uw = T / T, uh = h / T;
+          var vent = nt === Tt.VENT;
+          var lo = wallAO(tx, ty, nbs[k][1], nbs[k][0], false);
+          var hiA = wallAO(tx, ty, nbs[k][1], nbs[k][0], true);
+          var uv = [0, 0, 0, uh, uw, uh, uw, 0], ao = [lo, hiA, hiA, lo];
+          var SK = 0.15 * PP.M, RAIL = 1.02 * PP.M, RH = 0.055 * PP.M, OUT = 0.04 * PP.M;
+
           if (nbs[k][0] === 1) {
-            bucket(mat).quad([x1, 0, z1], [x1, h, z1], [x1, h, z0], [x1, 0, z0],
-              1, 0, 0, [0, 0, 0, uh, uw, uh, uw, 0]);
+            bucket(mat).quad([x1, 0, z1], [x1, h, z1], [x1, h, z0], [x1, 0, z0], 1, 0, 0, uv, ao);
+            if (!vent) trim(x1, z0, z1, 'x', 1, SK, RAIL, RH, OUT);
           } else if (nbs[k][0] === -1) {
-            bucket(mat).quad([x0, 0, z0], [x0, h, z0], [x0, h, z1], [x0, 0, z1],
-              -1, 0, 0, [0, 0, 0, uh, uw, uh, uw, 0]);
+            bucket(mat).quad([x0, 0, z0], [x0, h, z0], [x0, h, z1], [x0, 0, z1], -1, 0, 0, uv, ao);
+            if (!vent) trim(x0, z0, z1, 'x', -1, SK, RAIL, RH, OUT);
           } else if (nbs[k][1] === 1) {
-            bucket(mat).quad([x0, 0, z1], [x0, h, z1], [x1, h, z1], [x1, 0, z1],
-              0, 0, 1, [0, 0, 0, uh, uw, uh, uw, 0]);
+            bucket(mat).quad([x0, 0, z1], [x0, h, z1], [x1, h, z1], [x1, 0, z1], 0, 0, 1, uv, ao);
+            if (!vent) trim(z1, x0, x1, 'z', 1, SK, RAIL, RH, OUT);
           } else {
-            bucket(mat).quad([x1, 0, z0], [x1, h, z0], [x0, h, z0], [x0, 0, z0],
-              0, 0, -1, [0, 0, 0, uh, uw, uh, uw, 0]);
+            bucket(mat).quad([x1, 0, z0], [x1, h, z0], [x0, h, z0], [x0, 0, z0], 0, 0, -1, uv, ao);
+            if (!vent) trim(z0, x0, x1, 'z', -1, SK, RAIL, RH, OUT);
           }
         }
       }
@@ -154,11 +248,15 @@ PP.Scene = {
       grate:    { roughness: 0.55, metalness: 0.7,  normal: 1.4 },
       duct:     { roughness: 0.6,  metalness: 0.55, normal: 1.2 },
       wall:     { roughness: 0.88, metalness: 0.03, normal: 1.0 },
-      ceiling:  { roughness: 0.95, metalness: 0.0,  normal: 0.6 }
+      ceiling:  { roughness: 0.95, metalness: 0.0,  normal: 0.6 },
+      trim:     { roughness: 0.55, metalness: 0.12, normal: 0.7, color: 0x9aa2b0 }
     };
     Object.keys(B).forEach(function (name) {
       if (B[name].empty()) return;
-      var mesh = new THREE.Mesh(B[name].finish(), PP.Tex.mat(name, matOpts[name] || {}));
+      var opts = matOpts[name] || {};
+      var mat = PP.Tex.mat(name === 'trim' ? 'metal' : name, opts);
+      mat.vertexColors = true;                 // baked AO rides in the colour channel
+      var mesh = new THREE.Mesh(B[name].finish(), mat);
       mesh.receiveShadow = true;
       mesh.castShadow = false;
       mesh.matrixAutoUpdate = false;   // the level never moves
@@ -173,27 +271,39 @@ PP.Scene = {
     this.ready = true;
   },
 
+  /** ~60 fittings, drawn as two instanced meshes rather than 120 draws. */
   buildLamps: function (game) {
     var M = PP.M, self = this;
-    this.lampMeshes = [];
-    var housing = PP.Models.plain(0x3a4049, 0.5, 0.6);
-    var tubeGeo = new THREE.BoxGeometry(1.5 * M, 0.09 * M, 0.32 * M);
+    this.lampMeshes = PP.World.lamps;
+    var n = this.lampMeshes.length;
+    if (!n) return;
+
+    var housing = PP.Models.plain(0x30353d, 0.55, 0.45);
+    var tubeMat = new THREE.MeshBasicMaterial({ color: 0xffffff, fog: true });
     var caseGeo = new THREE.BoxGeometry(1.7 * M, 0.13 * M, 0.46 * M);
-    PP.World.lamps.forEach(function (l) {
-      var g = new THREE.Group();
-      g.position.set(l.x, PP.CEIL - 0.1 * M, l.y);
-      var cs = new THREE.Mesh(caseGeo, housing);
-      cs.position.y = 0.06 * M;
-      g.add(cs);
-      var mat = new THREE.MeshStandardMaterial({
-        color: 0x1a1c20, emissive: new THREE.Color(0xfff2d4), emissiveIntensity: 0, roughness: 0.4
-      });
-      var tube = new THREE.Mesh(tubeGeo, mat);
-      g.add(tube);
-      self.levelGroup.add(g);
-      l.mesh = tube; l.mat = mat;
-      self.lampMeshes.push(l);
-    });
+    var tubeGeo = new THREE.BoxGeometry(1.5 * M, 0.09 * M, 0.32 * M);
+
+    this.lampCases = new THREE.InstancedMesh(caseGeo, housing, n);
+    this.lampTubes = new THREE.InstancedMesh(tubeGeo, tubeMat, n);
+    this.lampTubes.instanceColor =
+      new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3);
+
+    var m4 = new THREE.Matrix4();
+    for (var i = 0; i < n; i++) {
+      var l = this.lampMeshes[i];
+      l.idx = i;
+      m4.makeTranslation(l.x, PP.CEIL - 0.10 * M + 0.06 * M, l.y);
+      this.lampCases.setMatrixAt(i, m4);
+      m4.makeTranslation(l.x, PP.CEIL - 0.10 * M, l.y);
+      this.lampTubes.setMatrixAt(i, m4);
+    }
+    this.lampCases.instanceMatrix.needsUpdate = true;
+    this.lampTubes.instanceMatrix.needsUpdate = true;
+    this.lampCases.frustumCulled = false;
+    this.lampTubes.frustumCulled = false;
+    this.levelGroup.add(this.lampCases);
+    this.levelGroup.add(this.lampTubes);
+    this._lampCol = new THREE.Color();
   },
 
   buildProps: function () {
@@ -225,9 +335,9 @@ PP.Scene = {
 
     // a small pool of real point lights, reassigned to whichever lamps are nearest
     this.lampPool = [];
-    var n = 9;
+    var n = 11;
     for (var i = 0; i < n; i++) {
-      var pl = new THREE.PointLight(0xffe6bd, 0, 320, 1.7);
+      var pl = new THREE.PointLight(0xffe6bd, 0, 560, 1.5);
       pl.castShadow = false;
       s.add(pl);
       this.lampPool.push(pl);
@@ -235,8 +345,8 @@ PP.Scene = {
 
     // the torch: the only shadow-caster, because six-face point shadows are not affordable
     this.torch = new THREE.SpotLight(0xfff0d0, 0, 900, 0.70, 0.62, 1.1);
-    this.torch.castShadow = true;
-    this.torch.shadow.mapSize.set(1024, 1024);
+    this.torch.castShadow = this.renderer.shadowMap.enabled;
+    this.torch.shadow.mapSize.set(this.shadowSize || 1024, this.shadowSize || 1024);
     this.torch.shadow.camera.near = 6;
     this.torch.shadow.camera.far = 900;
     this.torch.shadow.bias = -0.0004;
@@ -255,7 +365,29 @@ PP.Scene = {
       var el = new THREE.PointLight(0xff5a4a, 0, 260, 1.6);
       s.add(el); this.eyeLights.push(el);
     }
+    this.buildShafts();
     this.setMood(game);
+  },
+
+  /** A pool of additive cones, reassigned to whichever lit fittings are nearest. */
+  buildShafts: function () {
+    var self = this;
+    if (this.shafts) this.shafts.forEach(function (m) { self.scene.remove(m); });
+    this.shafts = [];
+    var geo = new THREE.ConeGeometry(1.35 * PP.M, PP.CEIL - 0.3 * PP.M, 14, 1, true);
+    geo.translate(0, -(PP.CEIL - 0.3 * PP.M) / 2, 0);
+    for (var i = 0; i < 7; i++) {
+      var mat = new THREE.MeshBasicMaterial({
+        map: PP.Tex.shaftTex(), transparent: true, opacity: 0,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+        side: THREE.DoubleSide, fog: true
+      });
+      var m = new THREE.Mesh(geo, mat);
+      m.visible = false;
+      m.renderOrder = 5;
+      this.scene.add(m);
+      this.shafts.push(m);
+    }
   },
 
   setMood: function (game) {
@@ -264,9 +396,15 @@ PP.Scene = {
     this.scene.fog = new THREE.FogExp2(night ? 0x05070c : monster ? 0x0a0810 : 0x161a24,
                                        night ? 0.0034 : monster ? 0.0016 : 0.0009);
     this.scene.background = new THREE.Color(night ? 0x05070c : monster ? 0x0a0810 : 0x161a24);
-    this.hemi.intensity = night ? 0.055 : monster ? 0.17 : 0.40;
-    this.ambient.intensity = night ? 0.045 : monster ? 0.13 : 0.30;
-    this.renderer.toneMappingExposure = night ? 0.92 : 1.05;
+    this.hemi.intensity = night ? 0.085 : monster ? 0.13 : 0.22;
+    this.ambient.intensity = night ? 0.065 : monster ? 0.10 : 0.16;
+    var P = PP.Post.params;
+    P.exposure  = night ? 1.22 : monster ? 0.95 : 0.88;
+    P.threshold = night ? 1.00 : 1.22;
+    P.vignette  = night ? 0.62 : monster ? 0.52 : 0.42;
+    P.grain     = night ? 0.026 : 0.014;
+    P.sat       = night ? 0.98 : 1.06;
+    this.renderer.toneMappingExposure = P.exposure;
   },
 
   buildHands: function (game) {
@@ -308,7 +446,7 @@ PP.Scene = {
     });
     this.hands = {};
     PP.World.props.forEach(function (p) { p.obj = null; });
-    PP.World.lamps.forEach(function (l) { l.mesh = null; l.mat = null; });
+    PP.World.lamps.forEach(function (l) { l.idx = null; });
     this.ready = false;
   },
 
@@ -456,12 +594,12 @@ PP.Scene = {
       if (p.kind === 'node' && p.obj.screen) {
         var m = p.obj.screen.material;
         m.emissive.setHex(p.done ? 0x39d98a : 0xff5a4a);
-        m.emissiveIntensity = p.done ? 1.2 : 0.4 + Math.abs(Math.sin(T * 3)) * 0.5;
+        m.emissiveIntensity = p.done ? 1.10 : 0.30 + Math.abs(Math.sin(T * 3)) * 0.40;
       }
       if (p.kind === 'socket') {
         var lit = p.node.done || p.heldBy;
-        p.obj.ring.material.emissiveIntensity = lit ? 2.6 : 1.0 + Math.sin(T * 4) * 0.4;
-        p.obj.core.material.emissiveIntensity = lit ? 3.4 : 1.4;
+        p.obj.ring.material.emissiveIntensity = lit ? 1.9 : 0.60 + Math.sin(T * 4) * 0.25;
+        p.obj.core.material.emissiveIntensity = lit ? 2.6 : 0.95;
       }
       if (p.kind === 'task' && p.obj.screen) {
         p.obj.screen.material.emissive.setHex(p.done ? 0x39d98a : 0x4fc3f7);
@@ -471,7 +609,7 @@ PP.Scene = {
       }
       if (p.kind === 'lift' && p.obj.lamp) {
         p.obj.lamp.material.emissive.setHex(p.armed ? 0x33ff88 : 0x223322);
-        p.obj.lamp.material.emissiveIntensity = p.armed ? 1.6 + Math.sin(T * 5) * 0.6 : 0.2;
+        p.obj.lamp.material.emissiveIntensity = p.armed ? 0.95 + Math.sin(T * 5) * 0.35 : 0.12;
       }
       if (p.kind === 'gas' && p.obj) {
         p.obj.cloud.material.opacity = 0.18 * Math.min(1, p.life / 3);
@@ -482,27 +620,46 @@ PP.Scene = {
 
   /** Assign the light pool to whichever lit lamps are nearest the camera. */
   updateLamps: function (game) {
-    var cam = this.camera.position, best = [];
+    var cam = this.camera.position, best = [], dirty = false;
     for (var i = 0; i < this.lampMeshes.length; i++) {
       var l = this.lampMeshes[i];
       var lv = this.lampLevel(game, l);
-      if (l.mat) {
-        l.mat.emissiveIntensity = lv * 3.2;
-        l.mat.emissive.setHex(game.power ? 0xfff2d4 : 0xffb27a);
+      if (this.lampTubes && l.idx != null) {
+        var base = game.power ? 0xfff2d4 : 0xffb27a;
+        this._lampCol.setHex(base).multiplyScalar(0.04 + lv * 1.85);
+        this.lampTubes.setColorAt(l.idx, this._lampCol);
+        dirty = true;
       }
       if (lv <= 0.03) continue;
       var d = (l.x - cam.x) * (l.x - cam.x) + (l.y - cam.z) * (l.y - cam.z);
-      if (d > 1100 * 1100) continue;
+      if (d > 1400 * 1400) continue;
       best.push({ l: l, d: d, lv: lv });
     }
+    if (dirty && this.lampTubes && this.lampTubes.instanceColor) {
+      this.lampTubes.instanceColor.needsUpdate = true;
+    }
     best.sort(function (a, b) { return a.d - b.d; });
+
+    // light shafts on the nearest few, so the beam is visible in the dust
+    if (this.shafts) {
+      for (var sIdx = 0; sIdx < this.shafts.length; sIdx++) {
+        var sh = this.shafts[sIdx], e2 = best[sIdx];
+        if (!this.shaftsOn || !e2 || e2.d > 620 * 620) { sh.visible = false; continue; }
+        sh.visible = true;
+        sh.position.set(e2.l.x, PP.CEIL - 0.16 * PP.M, e2.l.y);
+        var fade = 1 - Math.sqrt(e2.d) / 620;
+        sh.material.opacity = e2.lv * fade * (game.power ? 0.17 : 0.55);
+        sh.material.color.setHex(game.power ? 0xfff2d8 : 0xffb488);
+      }
+    }
+
     for (var k = 0; k < this.lampPool.length; k++) {
       var pl = this.lampPool[k];
       if (k < best.length) {
         var e = best[k];
-        pl.position.set(e.l.x, PP.CEIL - 0.25 * PP.M, e.l.y);
-        pl.intensity = e.lv * (game.power ? 1.75 : 0.80);
-        pl.distance = e.l.r * 1.6;
+        pl.position.set(e.l.x, PP.CEIL - 0.95 * PP.M, e.l.y);
+        pl.intensity = e.lv * (game.power ? 0.52 : 0.62);
+        pl.distance = e.l.r * 2.1;
         pl.color.setHex(game.power ? 0xffe6bd : 0xff9a5c);
       } else pl.intensity = 0;
     }
@@ -574,9 +731,9 @@ PP.Scene = {
     var dir = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
     this.torchTarget.position.copy(cam.position).addScaledVector(dir, range);
     this.torch.distance = range * 1.35;
-    this.torch.intensity = (pl.torch ? 1 : 0) * (game.power ? 1.7 : 2.6);
+    this.torch.intensity = (pl.torch ? 1 : 0) * (game.power ? 0.95 : 1.35);
     this.headLamp.position.copy(cam.position);
-    this.headLamp.intensity = (pl.torch ? 0.55 : 0.22) * (game.power ? 1 : 0.8);
+    this.headLamp.intensity = (pl.torch ? 0.30 : 0.12) * (game.power ? 0.30 : 1.0);
 
     // eyeshine on whichever monsters are closest
     var ms = game.monsters.slice(0, this.eyeLights.length);
@@ -700,7 +857,8 @@ PP.Scene = {
     });
   },
 
-  render: function () {
-    if (this.ready) this.renderer.render(this.scene, this.camera);
+  render: function (dt, fear) {
+    if (!this.ready) return;
+    PP.Post.render(this.scene, this.camera, dt || 0.016, fear || 0);
   }
 };
