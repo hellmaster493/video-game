@@ -89,19 +89,30 @@ PP.Scene = {
     if (level === 'low') {
       this.maxDpr = 1; PP.Post.enabled = false;
       r.shadowMap.enabled = false;
-      this.shaftsOn = false;
+      this.shaftsOn = false; this.roomShadow = false;
+      PP.Post.ssao = false; PP.Post.fxaa = false;
     } else if (level === 'medium') {
       this.maxDpr = 1.5; PP.Post.enabled = true;
       PP.Post.params.bloom = 0.5;
+      PP.Post.ssao = true; PP.Post.fxaa = true;
+      PP.Post.params.ao = 0.75;
       r.shadowMap.enabled = true;
       this.shadowSize = 512;
-      this.shaftsOn = true;
+      this.shaftsOn = true; this.roomShadow = false;
     } else {
       this.maxDpr = 2; PP.Post.enabled = true;
       PP.Post.params.bloom = 0.62;
+      PP.Post.ssao = true; PP.Post.fxaa = true;
+      PP.Post.params.ao = 1.0;
       r.shadowMap.enabled = true;
       this.shadowSize = 1024;
-      this.shaftsOn = true;
+      this.shaftsOn = true; this.roomShadow = true;
+    }
+    if (this.roomLight) {
+      this.roomLight.castShadow = r.shadowMap.enabled && this.roomShadow;
+      if (this.roomLight.shadow.map) {
+        this.roomLight.shadow.map.dispose(); this.roomLight.shadow.map = null;
+      }
     }
     if (this.torch) {
       this.torch.castShadow = r.shadowMap.enabled;
@@ -265,6 +276,7 @@ PP.Scene = {
     });
 
     this.buildLamps(game);
+    this.buildDressing();
     this.buildProps();
     this.buildLights(game);
     this.buildHands(game);
@@ -304,6 +316,177 @@ PP.Scene = {
     this.levelGroup.add(this.lampCases);
     this.levelGroup.add(this.lampTubes);
     this._lampCol = new THREE.Color();
+  },
+
+  /**
+   * Set dressing: the pipework, grilles, floor markings and signage that make a
+   * room read as a place somebody worked in. All merged into four meshes.
+   */
+  buildDressing: function () {
+    var M = PP.M, T = PP.TILE, W = PP.World, self = this;
+    var rnd = PP.rng(4242);
+    var pipes = [], grilles = [], floorQ = new Geo(), wallQ = new Geo();
+
+    function pipeRun(x0, z0, x1, z1, y, r) {
+      var len = Math.hypot(x1 - x0, z1 - z0);
+      if (len < 20) return;
+      var ang = Math.atan2(z1 - z0, x1 - x0);
+      pipes.push({ g: new THREE.CylinderGeometry(r, r, len, 10),
+                   m: PP.Models.xf((x0 + x1) / 2, y, (z0 + z1) / 2, 0, -ang, Math.PI / 2) });
+      // collars along the run, and a bracket up to the ceiling every few metres
+      var n = Math.max(1, Math.floor(len / (2.6 * M)));
+      for (var i = 0; i <= n; i++) {
+        var f = i / n, px = x0 + (x1 - x0) * f, pz = z0 + (z1 - z0) * f;
+        pipes.push({ g: new THREE.TorusGeometry(r * 1.35, r * 0.36, 6, 12),
+                     m: PP.Models.xf(px, y, pz, 0, -ang, Math.PI / 2) });
+        if (i % 2 === 0) {
+          pipes.push({ g: new THREE.BoxGeometry(r * 0.5, PP.CEIL - y, r * 0.5),
+                       m: PP.Models.xf(px, (PP.CEIL + y) / 2, pz) });
+        }
+      }
+    }
+
+    /** A quad from the decal atlas: cell (ci,cj) of a 2x2 sheet. */
+    function decal(geo, pts, nx, ny, nz, ci, cj) {
+      var u0 = ci * 0.5, v0 = cj * 0.5, u1 = u0 + 0.5, v1 = v0 + 0.5;
+      geo.quad(pts[0], pts[1], pts[2], pts[3], nx, ny, nz,
+               [u0, v0, u0, v1, u1, v1, u1, v0], [1, 1, 1, 1]);
+    }
+
+    W.rooms.forEach(function (r) {
+      var x0 = r.x * T, x1 = (r.x + r.w) * T, z0 = r.y * T, z1 = (r.y + r.h) * T;
+      var alongX = r.w >= r.h;
+      var py = PP.CEIL - 0.42 * M;
+
+      // ceiling pipe runs down the long axis
+      var runs = r.w > 18 || r.h > 18 ? 3 : 2;
+      for (var i = 0; i < runs; i++) {
+        var f = (i + 1) / (runs + 1);
+        var rad = (0.10 + (i % 2) * 0.045) * M;
+        if (alongX) pipeRun(x0 + T, z0 + (z1 - z0) * f, x1 - T, z0 + (z1 - z0) * f, py, rad);
+        else        pipeRun(x0 + (x1 - x0) * f, z0 + T, x0 + (x1 - x0) * f, z1 - T, py, rad);
+      }
+      // a cable tray hugging one wall
+      var ty = PP.CEIL - 0.75 * M;
+      if (alongX) {
+        pipes.push({ g: new THREE.BoxGeometry(x1 - x0 - T, 0.10 * M, 0.34 * M),
+                     m: PP.Models.xf((x0 + x1) / 2, ty, z0 + 0.55 * M) });
+      } else {
+        pipes.push({ g: new THREE.BoxGeometry(0.34 * M, 0.10 * M, z1 - z0 - T),
+                     m: PP.Models.xf(x0 + 0.55 * M, ty, (z0 + z1) / 2) });
+      }
+
+      // wall grilles, set into the wall face
+      var gy = PP.CEIL - 1.05 * M, gw = 0.7 * M, gh = 0.45 * M;
+      [[x0 + (x1 - x0) * 0.3, z0 + 0.06 * M, 0], [x1 - 0.06 * M, z0 + (z1 - z0) * 0.6, Math.PI / 2],
+       [x0 + (x1 - x0) * 0.7, z1 - 0.06 * M, 0], [x0 + 0.06 * M, z0 + (z1 - z0) * 0.35, Math.PI / 2]
+      ].forEach(function (p, k) {
+        if (rnd() < 0.35) return;
+        grilles.push({ g: new THREE.BoxGeometry(gw, gh, 0.09 * M),
+                       m: PP.Models.xf(p[0], gy, p[1], 0, p[2], 0) });
+        for (var b = 0; b < 4; b++) {
+          grilles.push({ g: new THREE.BoxGeometry(gw * 0.86, gh * 0.10, 0.13 * M),
+                         m: PP.Models.xf(p[0], gy - gh * 0.28 + b * gh * 0.19, p[1], 0, p[2], 0) });
+        }
+      });
+
+      // floor markings: stains, drains and a lane arrow
+      var marks = 2 + Math.floor(rnd() * 3);
+      for (var mI = 0; mI < marks; mI++) {
+        var sp = W.spotIn(r, 2), sz = (1.1 + rnd() * 1.6) * M;
+        var cell = rnd() < 0.55 ? [1, 0] : (rnd() < 0.5 ? [0, 1] : [1, 1]);
+        var rot = rnd() * 6.2832;
+        var ca = Math.cos(rot), sa = Math.sin(rot);
+        var pt = function (dx, dz) {
+          return [sp.x + dx * ca - dz * sa, 0.18, sp.y + dx * sa + dz * ca];
+        };
+        decal(floorQ, [pt(-sz, -sz), pt(-sz, sz), pt(sz, sz), pt(sz, -sz)],
+              0, 1, 0, cell[0], cell[1]);
+      }
+    });
+
+    // hazard stripes across every hall mouth
+    W.halls.forEach(function (h) {
+      if (rnd() < 0.45) return;
+      var horiz = h[2] >= h[3];
+      var cx = (h[0] + h[2] / 2) * T, cz = (h[1] + h[3] / 2) * T;
+      var half = (horiz ? h[3] : h[2]) * T * 0.5;
+      var band = 0.55 * M;
+      var p = horiz
+        ? [[cx - band, 0.18, cz - half], [cx - band, 0.18, cz + half],
+           [cx + band, 0.18, cz + half], [cx + band, 0.18, cz - half]]
+        : [[cx - half, 0.18, cz - band], [cx - half, 0.18, cz + band],
+           [cx + half, 0.18, cz + band], [cx + half, 0.18, cz - band]];
+      decal(floorQ, p, 0, 1, 0, 0, 0);
+    });
+
+    // signage on the walls, facing into the room
+    W.rooms.forEach(function (r) {
+      var x0 = r.x * T, x1 = (r.x + r.w) * T, z0 = r.y * T, z1 = (r.y + r.h) * T;
+      var n = 1 + Math.floor(rnd() * 2);
+      for (var i = 0; i < n; i++) {
+        var w = (0.85 + rnd() * 0.5) * M, hgt = w * 1.15;
+        var y = (1.55 + rnd() * 0.5) * M;
+        // cells (0,0) warning plate, (1,0) door number, (0,1) poster — never the grime cell
+        var pick3 = Math.floor(rnd() * 3);
+        var ci = pick3 === 1 ? 1 : 0, cj = pick3 === 2 ? 1 : 0;
+        var side = Math.floor(rnd() * 4), e = 0.14 * M;
+        var pts, nx = 0, nz = 0;
+        if (side === 0) {
+          var px = x0 + (x1 - x0) * (0.2 + rnd() * 0.6);
+          pts = [[px - w, y - hgt, z0 + e], [px - w, y + hgt, z0 + e],
+                 [px + w, y + hgt, z0 + e], [px + w, y - hgt, z0 + e]];
+          nz = 1;
+        } else if (side === 1) {
+          var px2 = x0 + (x1 - x0) * (0.2 + rnd() * 0.6);
+          pts = [[px2 + w, y - hgt, z1 - e], [px2 + w, y + hgt, z1 - e],
+                 [px2 - w, y + hgt, z1 - e], [px2 - w, y - hgt, z1 - e]];
+          nz = -1;
+        } else if (side === 2) {
+          var pz = z0 + (z1 - z0) * (0.2 + rnd() * 0.6);
+          pts = [[x0 + e, y - hgt, pz + w], [x0 + e, y + hgt, pz + w],
+                 [x0 + e, y + hgt, pz - w], [x0 + e, y - hgt, pz - w]];
+          nx = 1;
+        } else {
+          var pz2 = z0 + (z1 - z0) * (0.2 + rnd() * 0.6);
+          pts = [[x1 - e, y - hgt, pz2 - w], [x1 - e, y + hgt, pz2 - w],
+                 [x1 - e, y + hgt, pz2 + w], [x1 - e, y - hgt, pz2 + w]];
+          nx = -1;
+        }
+        decal(wallQ, pts, nx, 0, nz, ci, cj);
+      }
+    });
+
+    var steel = PP.Tex.mat('metal', { roughness: 0.52, metalness: 0.55, repeat: 1, normal: 0.8 });
+    if (pipes.length) {
+      var pm = new THREE.Mesh(PP.Models.merge(pipes), steel);
+      pm.castShadow = true; pm.receiveShadow = true;
+      pm.matrixAutoUpdate = false; pm.updateMatrix();
+      this.levelGroup.add(pm);
+    }
+    if (grilles.length) {
+      var gm = new THREE.Mesh(PP.Models.merge(grilles),
+                              PP.Models.plain(0x3b424e, 0.55, 0.5));
+      gm.castShadow = true; gm.receiveShadow = true;
+      gm.matrixAutoUpdate = false; gm.updateMatrix();
+      this.levelGroup.add(gm);
+    }
+    function decalMesh(geo, tex) {
+      if (geo.empty()) return;
+      var mat = new THREE.MeshStandardMaterial({
+        map: tex, transparent: true, roughness: 0.85, metalness: 0.05,
+        depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4,
+        polygonOffsetUnits: -4
+      });
+      mat.envMapIntensity = 0.2;
+      var m = new THREE.Mesh(geo.finish(), mat);
+      m.receiveShadow = true;
+      m.renderOrder = 2;
+      m.matrixAutoUpdate = false; m.updateMatrix();
+      self.levelGroup.add(m);
+    }
+    decalMesh(floorQ, PP.Tex.decals('floor'));
+    decalMesh(wallQ, PP.Tex.decals('wall'));
   },
 
   buildProps: function () {
@@ -359,6 +542,18 @@ PP.Scene = {
     this.headLamp = new THREE.PointLight(0xffeed4, 0.5, 260, 1.7);
     s.add(this.headLamp);
 
+    // the ceiling fitting overhead casts real shadows, so everything is grounded
+    this.roomLight = new THREE.SpotLight(0xffe9c8, 0, 520, 1.05, 0.75, 1.2);
+    this.roomLight.castShadow = !!this.roomShadow;
+    this.roomLight.shadow.mapSize.set(1024, 1024);
+    this.roomLight.shadow.camera.near = 8;
+    this.roomLight.shadow.camera.far = 520;
+    this.roomLight.shadow.bias = -0.0006;
+    this.roomLight.shadow.normalBias = 2.2;
+    this.roomTarget = new THREE.Object3D();
+    s.add(this.roomLight); s.add(this.roomTarget);
+    this.roomLight.target = this.roomTarget;
+
     // eyeshine, so a monster reads in the dark before you can make out its shape
     this.eyeLights = [];
     for (var e = 0; e < 3; e++) {
@@ -403,7 +598,10 @@ PP.Scene = {
     P.threshold = night ? 1.00 : 1.22;
     P.vignette  = night ? 0.62 : monster ? 0.52 : 0.42;
     P.grain     = night ? 0.026 : 0.014;
-    P.sat       = night ? 0.98 : 1.06;
+    P.sat       = night ? 0.96 : 1.04;
+    P.contrast  = night ? 1.20 : 1.14;
+    P.black     = night ? 0.020 : 0.012;
+    P.aoRadius  = 16;
     this.renderer.toneMappingExposure = P.exposure;
   },
 
@@ -708,7 +906,7 @@ PP.Scene = {
         sh.visible = true;
         sh.position.set(e2.l.x, PP.CEIL - 0.16 * PP.M, e2.l.y);
         var fade = 1 - Math.sqrt(e2.d) / 620;
-        sh.material.opacity = e2.lv * fade * (game.power ? 0.17 : 0.55);
+        sh.material.opacity = e2.lv * fade * (game.power ? 0.11 : 0.46);
         sh.material.color.setHex(game.power ? 0xfff2d8 : 0xffb488);
       }
     }
@@ -723,6 +921,19 @@ PP.Scene = {
         pl.color.setHex(game.power ? 0xffe6bd : 0xff9a5c);
       } else pl.intensity = 0;
     }
+  },
+
+  /** How lit the ceiling is above a point — drives the shadow-casting room light. */
+  lampNear: function (x, y, game) {
+    var best = 0;
+    for (var i = 0; i < this.lampMeshes.length; i++) {
+      var l = this.lampMeshes[i];
+      var d2 = (l.x - x) * (l.x - x) + (l.y - y) * (l.y - y);
+      if (d2 > 420 * 420) continue;
+      var lv = this.lampLevel(game, l) * (1 - Math.sqrt(d2) / 420);
+      if (lv > best) best = lv;
+    }
+    return best;
   },
 
   lampLevel: function (game, l) {
@@ -794,6 +1005,14 @@ PP.Scene = {
     this.torch.intensity = (pl.torch ? 1 : 0) * (game.power ? 0.95 : 1.35);
     this.headLamp.position.copy(cam.position);
     this.headLamp.intensity = (pl.torch ? 0.30 : 0.12) * (game.power ? 0.30 : 1.0);
+
+    // the room light rides the ceiling above the player
+    if (this.roomLight) {
+      this.roomLight.position.set(pl.x, PP.CEIL - 0.4 * M, pl.y);
+      this.roomTarget.position.set(pl.x, 0, pl.y);
+      var lit = this.lampNear(pl.x, pl.y, game);
+      this.roomLight.intensity = this.roomShadow ? lit * (game.power ? 0.9 : 0.55) : 0;
+    }
 
     // eyeshine on whichever monsters are closest
     var ms = game.monsters.slice(0, this.eyeLights.length);

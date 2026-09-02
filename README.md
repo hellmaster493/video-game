@@ -147,10 +147,23 @@ repaired, a third at five, both drawn from the ones you didn't pick.
   metal, floor grate, duct, wood, plush and cloth.
 - **Post-processing** is hand-rolled in `js/post.js`, because EffectComposer is
   an addon and this ships no addons. The scene renders into a linear half-float
-  buffer, then: bright pass with a soft knee, two separable gaussian blur levels
-  for a tight halo and a wide glow, then one composite that does bloom, an ACES
-  filmic curve, a colour grade (cool shadows, warm highlights), vignette, film
-  grain and lens dispersion that widens as your character panics.
+  buffer with a depth texture, then: **SSAO** (hemisphere sampling with normals
+  reconstructed from depth derivatives, blurred at half res), a bright pass with
+  a soft knee, two separable gaussian blur levels for a tight halo and a wide
+  glow, a composite that applies AO, bloom, an ACES filmic curve, a graded
+  S-curve with a crushed black point, cool shadows and warm highlights,
+  vignette, film grain and lens dispersion that widens as your character
+  panics — and finally **FXAA**, because rendering through a render target
+  throws away the MSAA buffer.
+- **Set dressing.** Every room gets ceiling pipe runs with collars and hangers,
+  a cable tray along one wall, recessed wall grilles, worn floor markings
+  (hazard stripes at every hall mouth, oil stains, drains, lane arrows) and wall
+  signage. It is all merged into four meshes, and it is the difference between
+  a lit box and somewhere people worked.
+- **Grime.** Concrete, tile, paint, ceiling, steel and grate all get a pass of
+  accumulated dirt, rust and water staining that runs downward on vertical
+  surfaces, drag marks and chipped edges — into the albedo, the height map that
+  feeds the normals, and the roughness.
 - **Ambient occlusion is baked into the level's vertex colours** at build time.
   A floor corner darkens for each solid tile touching it and wall faces darken
   at the floor, which is what grounds the walls and reads the room corners —
@@ -185,14 +198,16 @@ repaired, a third at five, both drawn from the ones you didn't pick.
   frame correctly in the cast screen and scale as one piece.
 - **Lighting** is a pool of eleven point lights reassigned each frame to
   whichever ceiling fixtures are nearest, plus a single shadow-casting spotlight
-  on the torch. The fittings sit recessed so they light the room rather than the
+  on the torch, and a second shadow-casting spot that rides the ceiling above
+  the player so props and characters are grounded by a real shadow rather than
+  a blob. The fittings sit recessed so they light the room rather than the
   ceiling, and with the power out only about a third run on emergency circuits.
   The fittings themselves are two instanced meshes, not sixty groups.
 - A small procedural environment map is generated with `PMREMGenerator` so
   metals and rough surfaces resolve instead of rendering black.
 - **Three quality presets** (Low / Medium / High) on the menu trade away
-  post-processing, shadows, light shafts and pixel ratio, so a weak machine
-  still gets a playable frame rate.
+  post-processing, SSAO, anti-aliasing, shadows, light shafts and pixel ratio,
+  so a weak machine still gets a playable frame rate.
 
 ## Tokens
 

@@ -83,9 +83,13 @@ PP.Tex = {
   },
 
   /* ── the surfaces ───────────────────────────────────────── */
+  SIZES: { concrete: 512, checker: 512, wall: 512, ceiling: 512, metal: 512,
+           grate: 512, duct: 512, wood: 512, plush: 256, cloth: 256 },
+
   build: function (name) {
     if (this.cache[name]) return this.cache[name];
-    var S = 256, rnd = PP.rng(name.split('').reduce(function (a, ch) { return a + ch.charCodeAt(0) * 31; }, 7));
+    var S = this.SIZES[name] || 256;
+    var rnd = PP.rng(name.split('').reduce(function (a, ch) { return a + ch.charCodeAt(0) * 31; }, 7));
     var alb = this.cv(S), h = this.cv(S), rough = null;
     var a = alb.getContext('2d'), hh = h.getContext('2d');
     var i, j;
@@ -292,6 +296,10 @@ PP.Tex = {
         this.fill(alb, '#888888'); this.fill(h, '#808080');
     }
 
+    if (['concrete', 'checker', 'wall', 'ceiling', 'metal', 'grate', 'duct'].indexOf(name) >= 0) {
+      this.grime(alb, h, rough, rnd, S, name);
+    }
+
     var set = {
       map: this.tex(alb),
       normalMap: this.tex(this.normalFromHeight(h, name === 'carpet' ? 1.2 : name === 'plush' ? 2.0 : 3.2)),
@@ -299,6 +307,69 @@ PP.Tex = {
     };
     this.cache[name] = set;
     return set;
+  },
+
+  /**
+   * Dirt, drips, scuffs and wear. Everything in a working building has been
+   * leaked on, dragged across or scrubbed at.
+   */
+  grime: function (alb, h, rough, rnd, S, name) {
+    var a = alb.getContext('2d'), hh = h.getContext('2d');
+    var vertical = (name === 'wall' || name === 'duct');
+    var i;
+
+    // broad patches of accumulated dirt
+    for (i = 0; i < 26; i++) {
+      var px = rnd() * S, py = rnd() * S, r = S * (0.06 + rnd() * 0.20);
+      var g = a.createRadialGradient(px, py, 0, px, py, r);
+      var dark = rnd() < 0.72;
+      g.addColorStop(0, dark ? 'rgba(38,32,26,' + (0.10 + rnd() * 0.16) + ')'
+                             : 'rgba(190,185,172,' + (0.05 + rnd() * 0.08) + ')');
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      a.fillStyle = g;
+      a.beginPath(); a.arc(px, py, r, 0, 6.2832); a.fill();
+    }
+
+    // rust and water staining, running downward on vertical surfaces
+    for (i = 0; i < (vertical ? 20 : 9); i++) {
+      var sx = rnd() * S, sy = rnd() * S;
+      var len = S * (0.15 + rnd() * (vertical ? 0.6 : 0.25));
+      var wdt = 2 + rnd() * (vertical ? 10 : 26);
+      var gd = a.createLinearGradient(sx, sy, sx, sy + len);
+      var rust = rnd() < 0.4;
+      gd.addColorStop(0, rust ? 'rgba(122,68,32,.34)' : 'rgba(44,40,34,.28)');
+      gd.addColorStop(1, 'rgba(0,0,0,0)');
+      a.fillStyle = gd;
+      a.fillRect(sx, sy, wdt, len);
+      hh.fillStyle = 'rgba(0,0,0,.14)';
+      hh.fillRect(sx, sy, wdt, len);
+      if (rough) {
+        var rr2 = rough.getContext('2d');
+        rr2.fillStyle = 'rgba(255,255,255,.20)';   // dried stains are rougher
+        rr2.fillRect(sx, sy, wdt, len);
+      }
+    }
+
+    // scuffs and drag marks
+    for (i = 0; i < 46; i++) {
+      var ax = rnd() * S, ay = rnd() * S, an = rnd() * 6.2832;
+      var L = S * (0.02 + rnd() * 0.13);
+      a.strokeStyle = rnd() < 0.6 ? 'rgba(30,26,22,.20)' : 'rgba(215,212,204,.14)';
+      a.lineWidth = 1 + rnd() * 3;
+      a.beginPath();
+      a.moveTo(ax, ay);
+      a.lineTo(ax + Math.cos(an) * L, ay + Math.sin(an) * L);
+      a.stroke();
+    }
+
+    // chipped edges, which read as wear at grazing angles
+    for (i = 0; i < 60; i++) {
+      var cx2 = rnd() * S, cy2 = rnd() * S, cr = 1 + rnd() * 4;
+      a.fillStyle = 'rgba(24,22,20,.30)';
+      a.beginPath(); a.arc(cx2, cy2, cr, 0, 6.2832); a.fill();
+      hh.fillStyle = 'rgba(0,0,0,.55)';
+      hh.beginPath(); hh.arc(cx2, cy2, cr, 0, 6.2832); hh.fill();
+    }
   },
 
   /**
@@ -355,6 +426,149 @@ PP.Tex = {
     x.beginPath(); x.arc(S / 2, S / 2, R * 0.94, 0, 6.2832); x.stroke();
     x.fillStyle = '#07060a';
     x.beginPath(); x.arc(S / 2, S / 2, R * 0.44, 0, 6.2832); x.fill();
+    var t = new THREE.CanvasTexture(c);
+    t.anisotropy = this.aniso;
+    this.cache[key] = t;
+    return t;
+  },
+
+  /**
+   * Two 2x2 decal atlases — floor markings and wall signage. Everything that
+   * makes a room look worked in rather than modelled.
+   */
+  decals: function (kind) {
+    var key = 'decal' + kind;
+    if (this.cache[key]) return this.cache[key];
+    var S = 512, H = S / 2, c = this.cv(S), x = c.getContext('2d');
+    var rnd = PP.rng(kind === 'floor' ? 31 : 77);
+    x.clearRect(0, 0, S, S);
+
+    function cell(i, j, fn) { x.save(); x.translate(i * H, j * H); fn(H); x.restore(); }
+
+    if (kind === 'floor') {
+      // hazard stripes
+      cell(0, 0, function (D) {
+        x.fillStyle = '#b8922a'; x.fillRect(0, D * 0.30, D, D * 0.40);
+        x.fillStyle = '#2a2a2e';
+        for (var i = -D; i < D * 2; i += D * 0.19) {
+          x.beginPath();
+          x.moveTo(i, D * 0.30); x.lineTo(i + D * 0.095, D * 0.30);
+          x.lineTo(i + D * 0.095 + D * 0.40, D * 0.70); x.lineTo(i + D * 0.40, D * 0.70);
+          x.closePath(); x.fill();
+        }
+        // worn away in the middle where people walk
+        x.globalCompositeOperation = 'destination-out';
+        for (var w = 0; w < 190; w++) {
+          x.globalAlpha = 0.08 + rnd() * 0.42;
+          x.beginPath();
+          x.arc(rnd() * D, D * 0.3 + rnd() * D * 0.4, 3 + rnd() * 20, 0, 6.2832);
+          x.fill();
+        }
+        x.globalAlpha = 1; x.globalCompositeOperation = 'source-over';
+      });
+      // oil stain
+      cell(1, 0, function (D) {
+        for (var i = 0; i < 26; i++) {
+          var px = D / 2 + (rnd() - 0.5) * D * 0.55, py = D / 2 + (rnd() - 0.5) * D * 0.55;
+          var r = D * (0.05 + rnd() * 0.18);
+          var g = x.createRadialGradient(px, py, 0, px, py, r);
+          g.addColorStop(0, 'rgba(14,12,14,' + (0.20 + rnd() * 0.35) + ')');
+          g.addColorStop(1, 'rgba(14,12,14,0)');
+          x.fillStyle = g;
+          x.beginPath(); x.arc(px, py, r, 0, 6.2832); x.fill();
+        }
+      });
+      // floor drain
+      cell(0, 1, function (D) {
+        var cx = D / 2, cy = D / 2, R = D * 0.34;
+        x.fillStyle = '#3a3f48';
+        x.beginPath(); x.arc(cx, cy, R, 0, 6.2832); x.fill();
+        x.fillStyle = '#14171c';
+        x.beginPath(); x.arc(cx, cy, R * 0.82, 0, 6.2832); x.fill();
+        x.strokeStyle = '#585f6b'; x.lineWidth = D * 0.035;
+        for (var b = -4; b <= 4; b++) {
+          x.beginPath();
+          x.moveTo(cx + b * R * 0.19, cy - R * 0.78);
+          x.lineTo(cx + b * R * 0.19, cy + R * 0.78);
+          x.stroke();
+        }
+        x.strokeStyle = '#6d757f'; x.lineWidth = D * 0.03;
+        x.beginPath(); x.arc(cx, cy, R * 0.9, 0, 6.2832); x.stroke();
+      });
+      // lane arrow
+      cell(1, 1, function (D) {
+        x.fillStyle = 'rgba(226,214,120,.72)';
+        x.beginPath();
+        x.moveTo(D * 0.5, D * 0.16); x.lineTo(D * 0.80, D * 0.52);
+        x.lineTo(D * 0.63, D * 0.52); x.lineTo(D * 0.63, D * 0.86);
+        x.lineTo(D * 0.37, D * 0.86); x.lineTo(D * 0.37, D * 0.52);
+        x.lineTo(D * 0.20, D * 0.52);
+        x.closePath(); x.fill();
+        x.globalCompositeOperation = 'destination-out';
+        for (var w = 0; w < 60; w++) {
+          x.globalAlpha = 0.1 + rnd() * 0.4;
+          x.beginPath(); x.arc(rnd() * D, rnd() * D, 3 + rnd() * 12, 0, 6.2832); x.fill();
+        }
+        x.globalAlpha = 1; x.globalCompositeOperation = 'source-over';
+      });
+    } else {
+      // a warning plate
+      cell(0, 0, function (D) {
+        x.fillStyle = '#d8c02a';
+        x.beginPath();
+        x.moveTo(D * 0.5, D * 0.14); x.lineTo(D * 0.88, D * 0.80);
+        x.lineTo(D * 0.12, D * 0.80); x.closePath(); x.fill();
+        x.strokeStyle = '#17171a'; x.lineWidth = D * 0.045; x.stroke();
+        x.fillStyle = '#17171a';
+        x.fillRect(D * 0.465, D * 0.34, D * 0.07, D * 0.26);
+        x.beginPath(); x.arc(D * 0.5, D * 0.68, D * 0.045, 0, 6.2832); x.fill();
+      });
+      // a door number plate
+      cell(1, 0, function (D) {
+        x.fillStyle = 'rgba(126,134,148,.95)';
+        x.fillRect(D * 0.12, D * 0.30, D * 0.76, D * 0.40);
+        x.strokeStyle = 'rgba(210,218,232,.9)'; x.lineWidth = D * 0.02;
+        x.strokeRect(D * 0.12, D * 0.30, D * 0.76, D * 0.40);
+        x.fillStyle = '#f2f5fa';
+        x.font = 'bold ' + (D * 0.20) + 'px Trebuchet MS';
+        x.textAlign = 'center'; x.textBaseline = 'middle';
+        x.fillText('SECTOR 4', D * 0.5, D * 0.51);
+      });
+      // a peeling poster
+      cell(0, 1, function (D) {
+        x.fillStyle = '#e8ddc4';
+        x.fillRect(D * 0.16, D * 0.10, D * 0.68, D * 0.80);
+        x.fillStyle = '#3f6fbf';
+        x.fillRect(D * 0.16, D * 0.10, D * 0.68, D * 0.22);
+        x.fillStyle = '#f7f2e4';
+        x.font = 'bold ' + (D * 0.10) + 'px Trebuchet MS';
+        x.textAlign = 'center'; x.textBaseline = 'middle';
+        x.fillText('PLAYTIME', D * 0.5, D * 0.21);
+        x.fillStyle = '#c8503f';
+        x.beginPath(); x.arc(D * 0.5, D * 0.52, D * 0.14, 0, 6.2832); x.fill();
+        x.fillStyle = '#2b2b30';
+        x.font = (D * 0.062) + 'px Trebuchet MS';
+        x.fillText('SAFETY FIRST', D * 0.5, D * 0.76);
+        // torn corner
+        x.globalCompositeOperation = 'destination-out';
+        x.beginPath();
+        x.moveTo(D * 0.84, D * 0.10); x.lineTo(D * 0.84, D * 0.34); x.lineTo(D * 0.58, D * 0.10);
+        x.closePath(); x.fill();
+        x.globalCompositeOperation = 'source-over';
+      });
+      // scorch / handprints
+      cell(1, 1, function (D) {
+        for (var i = 0; i < 20; i++) {
+          var px = D / 2 + (rnd() - 0.5) * D * 0.6, py = D / 2 + (rnd() - 0.5) * D * 0.6;
+          var r = D * (0.04 + rnd() * 0.16);
+          var g = x.createRadialGradient(px, py, 0, px, py, r);
+          g.addColorStop(0, 'rgba(44,34,28,' + (0.05 + rnd() * 0.10) + ')');
+          g.addColorStop(1, 'rgba(44,34,28,0)');
+          x.fillStyle = g;
+          x.beginPath(); x.arc(px, py, r, 0, 6.2832); x.fill();
+        }
+      });
+    }
     var t = new THREE.CanvasTexture(c);
     t.anisotropy = this.aniso;
     this.cache[key] = t;
