@@ -716,8 +716,17 @@ PP.Scene = {
         var elbow = 0.22 + amp * 0.30;
         this.hinge(rig.armL, elbow + Math.max(0, swing) * 0.55, 0.55);
         this.hinge(rig.armR, elbow + Math.max(0, -swing) * 0.55, 0.55);
-        this.hinge(rig.legL, Math.max(0, swing) * 1.05 + 0.04, 0.85);
-        this.hinge(rig.legR, Math.max(0, -swing) * 1.05 + 0.04, 0.85);
+        // a digitigrade rig needs the whole leg biased into its reversed shape
+        var bias = rig.legBias;
+        if (bias) {
+          rig.legL.rotation.x += bias.hip; rig.legR.rotation.x += bias.hip;
+        }
+        this.hinge(rig.legL, Math.max(0, swing) * 1.05 + 0.04 + (bias ? bias.knee : 0), 0.85);
+        this.hinge(rig.legR, Math.max(0, -swing) * 1.05 + 0.04 + (bias ? bias.knee : 0), 0.85);
+        if (bias) {
+          if (rig.legL.wrist) rig.legL.wrist.rotation.x += bias.ankle;
+          if (rig.legR.wrist) rig.legR.wrist.rotation.x += bias.ankle;
+        }
       }
       if (rig.quad) this.animateQuad(e, rig, dt, amp, sp);
       if (rig.spine) {
@@ -840,6 +849,29 @@ PP.Scene = {
         if (lgL) { lgL.rotation.x = Math.sin(T * 8 + q) * 0.5 * amp; lgR.rotation.x = -lgL.rotation.x; }
       }
     }
+    // ── Claudie ──
+    if (rig.jawL) {
+      // the mask opens only as it reaches you
+      var open = m.lunge > 0 ? (m.lunge / 0.35)
+               : (m.state === 'chase' && !m.watched ? 0.18 : 0);
+      rig.jawL.rotation.y = PP.U.approach(rig.jawL.rotation.y, open * 1.25, 16, dt);
+      rig.jawR.rotation.y = PP.U.approach(rig.jawR.rotation.y, -open * 1.25, 16, dt);
+    }
+    if (rig.stutter) {
+      if (m.watched) {
+        // dead still, except a tremor you are not sure you saw
+        var tr = Math.sin(T * 31) * 0.35 + Math.sin(T * 53) * 0.18;
+        rig.root.position.x += tr * 0.03;
+        rig.root.position.z += tr * 0.02;
+        if (rig.neck) rig.neck.rotation.z = PP.U.approach(rig.neck.rotation.z, 0.22, 0.5, dt);
+      } else {
+        // it does not walk so much as advance in snaps
+        var j = Math.sin(T * 26) * 0.05 + Math.sin(T * 43) * 0.028;
+        if (rig.spine) rig.spine.rotation.z += j;
+        if (rig.neck) rig.neck.rotation.z += j * 1.7;
+      }
+    }
+
     if (rig.head && !rig.neck) {
       rig.head.rotation.y = Math.sin(T * 0.7 + (rig.idleSway || 0)) * 0.25;
     }
@@ -949,6 +981,7 @@ PP.Scene = {
   updateCamera: function (game, dt) {
     var pl = game.player, cam = this.camera, M = PP.M;
     if (!pl) return;
+    if (game.cine) { this.cinematicCamera(game, dt); return; }
     var rig = pl.rig;
     var eye = rig ? rig.eyeHeight : 25;
     var third = this.thirdPerson || game.mode === 'monster';
@@ -1003,6 +1036,19 @@ PP.Scene = {
     this.torchTarget.position.copy(cam.position).addScaledVector(dir, range);
     this.torch.distance = range * 1.35;
     this.torch.intensity = (pl.torch ? 1 : 0) * (game.power ? 0.95 : 1.35);
+    // Claudie does something to the wiring; the closer it is, the worse the torch
+    var interference = 0;
+    for (var ci = 0; ci < game.monsters.length; ci++) {
+      var cm = game.monsters[ci];
+      if (cm.def.special !== 'still' || cm === pl) continue;
+      interference = Math.max(interference,
+        PP.U.clamp(1 - PP.U.dist(pl.x, pl.y, cm.x, cm.y) / 620, 0, 1));
+    }
+    if (interference > 0.02) {
+      var t2 = performance.now() / 1000;
+      var flick = 1 - interference * (0.35 + 0.65 * (Math.sin(t2 * 37) * Math.sin(t2 * 13) > 0.35 ? 1 : 0));
+      this.torch.intensity *= Math.max(0.05, flick);
+    }
     this.headLamp.position.copy(cam.position);
     this.headLamp.intensity = (pl.torch ? 0.30 : 0.12) * (game.power ? 0.30 : 1.0);
 
@@ -1022,6 +1068,107 @@ PP.Scene = {
       el.position.set(m.x, (m.rig ? m.rig.eyeHeight : 30), m.y);
       el.color.setHex(new THREE.Color(m.def.look.eye).getHex());
       el.intensity = (m.state === 'chase' ? 1.1 : 0.5);
+    }
+  },
+
+  /**
+   * The grab. For most of them you are yanked in, held up and then the mouth
+   * closes over the lens. Claudie takes you from behind, turns you round, and
+   * puts you into the mask.
+   */
+  cinematicCamera: function (game, dt) {
+    var c = game.cine, m = c.m, cam = this.camera, M = PP.M;
+    var rig = m.rig;
+    var headY = rig ? rig.eyeHeight : 40;
+    var head = new THREE.Vector3(m.x, headY, m.y);
+    var fwd = new THREE.Vector3(Math.cos(m.face), 0, Math.sin(m.face));
+    var eye = new THREE.Vector3(), look = new THREE.Vector3(), roll = 0, shake = 0;
+    var t = c.t;
+
+    if (c.kind === 'claudie') {
+      var pl = game.player;
+      if (t < 0.5) {
+        // turned round to face it, whether you wanted to be or not
+        var k = PP.U.clamp(t / 0.5, 0, 1);
+        var ease = k * k * (3 - 2 * k);
+        var awayPt = new THREE.Vector3(pl.x + Math.cos(c.yaw0) * 200, 26,
+                                       pl.y + Math.sin(c.yaw0) * 200);
+        eye.set(pl.x, 26, pl.y);
+        look.lerpVectors(awayPt, head, ease);
+        roll = ease * 0.22;
+        shake = 1.6 * (1 - ease * 0.4);
+      } else if (t < 1.35) {
+        // lifted off the floor
+        var k2 = PP.U.clamp((t - 0.5) / 0.85, 0, 1);
+        eye.set(pl.x, 26 + k2 * 22, pl.y).addScaledVector(fwd, k2 * 14);
+        look.copy(head);
+        roll = 0.22 + k2 * 0.18;
+        shake = 1.1;
+      } else {
+        // and into the mask
+        var k3 = PP.U.clamp((t - 1.35) / 0.95, 0, 1);
+        var e3 = k3 * k3;
+        var start = new THREE.Vector3(pl.x, 48, pl.y).addScaledVector(fwd, 14);
+        var end = head.clone().addScaledVector(fwd, rig ? rig.headR * 0.35 : 6);
+        eye.lerpVectors(start, end, e3);
+        look.copy(head).addScaledVector(fwd, -20);
+        roll = 0.40 + e3 * 0.55;
+        shake = 1.4 + e3 * 2.2;
+      }
+    } else {
+      if (t < 0.65) {
+        var g0 = PP.U.clamp(t / 0.65, 0, 1);
+        var from = new THREE.Vector3(c.px, 26, c.py);
+        var to = head.clone().addScaledVector(fwd, (rig ? rig.headR : 8) * 4.2);
+        to.y = headY * 0.86;
+        eye.lerpVectors(from, to, g0 * g0 * (3 - 2 * g0));
+        look.copy(head);
+        roll = g0 * 0.16;
+        shake = 2.0 * (1 - g0 * 0.5);
+      } else if (t < 1.5) {
+        var g1 = PP.U.clamp((t - 0.65) / 0.85, 0, 1);
+        eye.copy(head).addScaledVector(fwd, (rig ? rig.headR : 8) * (4.2 - g1 * 1.4));
+        eye.y = headY * (0.86 + g1 * 0.12);
+        look.copy(head);
+        roll = 0.16 + Math.sin(g1 * 6.0) * 0.10;
+        shake = 0.9;
+      } else {
+        var g2 = PP.U.clamp((t - 1.5) / 0.6, 0, 1);
+        var e2 = g2 * g2;
+        eye.copy(head).addScaledVector(fwd, (rig ? rig.headR : 8) * (2.8 - e2 * 2.6));
+        eye.y = headY * 0.98;
+        look.copy(head).addScaledVector(fwd, -20);
+        roll = 0.26 + e2 * 0.5;
+        shake = 1.2 + e2 * 2.0;
+      }
+    }
+
+    cam.position.copy(eye);
+    cam.lookAt(look);
+    cam.rotation.z = roll;
+    if (shake > 0) {
+      var s = shake;
+      cam.position.x += PP.U.rand(-s, s);
+      cam.position.y += PP.U.rand(-s, s);
+      cam.position.z += PP.U.rand(-s, s);
+    }
+
+    // the torch swings loose in your hand
+    this.torch.position.copy(cam.position);
+    var dir = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
+    this.torchTarget.position.copy(cam.position).addScaledVector(dir, 400);
+    this.torch.intensity = 2.0;
+    this.torch.distance = 700;
+    this.headLamp.position.copy(cam.position);
+    this.headLamp.intensity = 0.75;
+    if (this.roomLight) this.roomLight.intensity = 0;
+    for (var i = 0; i < this.eyeLights.length; i++) {
+      var el = this.eyeLights[i];
+      if (i === 0) {
+        el.position.set(m.x, headY, m.y);
+        el.color.setHex(new THREE.Color(m.def.look.eye).getHex());
+        el.intensity = 2.2;
+      } else el.intensity = 0;
     }
   },
 

@@ -23,6 +23,7 @@ PP.Game = {
     this.nodesDone = 0; this.caughtCount = 0;
     this.flares = []; this.noises = []; this.seen = {};
     this.slow = 0; this.slip = 0; this.flash = 0; this.reveal = 0;
+    this.cine = null; this.fade = 0;
     this.npcs = []; this.monsters = [];
     this.shift = (S.shifts || 0) + 1;
 
@@ -114,6 +115,7 @@ PP.Game = {
 
   /* ═════════ per-frame ═════════ */
   update: function (dt) {
+    if (this.cine) { this.tickCinematic(dt); return; }
     if (!this.running || this.paused || this.over) return;
     var In = PP.Input;
     this.clock += dt;
@@ -284,13 +286,21 @@ PP.Game = {
     }
     if (t > pl.fear) pl.fear = PP.U.approach(pl.fear, t, 3.2, dt);
     PP.Audio.drone(pl.fear);
+    // a thin high tone that only Claudie brings with it
+    var dread = 0;
+    for (var i = 0; i < this.monsters.length; i++) {
+      var m = this.monsters[i];
+      if (m.def.special !== 'still') continue;
+      dread = Math.max(dread, PP.U.clamp(1 - PP.U.dist(pl.x, pl.y, m.x, m.y) / 700, 0, 1));
+    }
+    PP.Audio.dread(dread);
     if (pl.fear > 0.75) PP.Scene.camShake = Math.max(PP.Scene.camShake, 0.08);
   },
 
   /** Escalate the night as the player makes progress. */
   tickDirector: function (dt) {
     if (this.mode !== 'night') return;
-    var roster = ['mommy', 'bunzo', 'pj', 'catnap', 'boxy', 'huggy'];
+    var roster = ['mommy', 'bunzo', 'pj', 'catnap', 'boxy', 'huggy', 'claudie'];
     var pick = function (taken) {
       for (var i = 0; i < roster.length; i++) if (taken.indexOf(roster[i]) < 0) return roster[i];
       return 'huggy';
@@ -373,8 +383,7 @@ PP.Game = {
         PP.UI.toast('Close call — you tore free. Lost ' + lost + ' tokens. No second chances.', 'bad');
         return;
       }
-      this.finish(false, monster.def.name + ' found you in the ' +
-                  PP.World.roomName(this.player.x, this.player.y) + '.');
+      this.beginDeath(monster);
     } else if (victim instanceof Npc) {
       if (victim.caught) return;
       victim.caught = true; victim.say('!!', 2);
@@ -388,6 +397,65 @@ PP.Game = {
         PP.UI.toast(victim.name + ' was taken.', 'bad');
       }
       this.updateObjective();
+    }
+  },
+
+  /**
+   * The camera stops being yours. Every monster gets a grab; Claudie gets its
+   * own, because being taken from behind is the whole point of it.
+   */
+  beginDeath: function (monster) {
+    var pl = this.player;
+    var claudie = monster.def.special === 'still';
+    if (claudie) {
+      // it was never in front of you
+      var behind = pl.face + Math.PI;
+      var bx = pl.x + Math.cos(behind) * 52, by = pl.y + Math.sin(behind) * 52;
+      for (var d = 52; d > 10; d -= 8) {
+        bx = pl.x + Math.cos(behind) * d; by = pl.y + Math.sin(behind) * d;
+        if (!PP.World.blocked(bx, by, monster.rad)) break;
+      }
+      monster.x = bx; monster.y = by;
+      PP.Audio.ceramic(); PP.Audio.roar();
+    }
+    monster.face = Math.atan2(pl.y - monster.y, pl.x - monster.x);
+    this.cine = {
+      m: monster, t: 0,
+      dur: claudie ? 2.7 : 2.1,
+      kind: claudie ? 'claudie' : 'grab',
+      yaw0: pl.face, pitch0: pl.pitch,
+      px: pl.x, py: pl.y,
+      reason: claudie
+        ? 'You never saw Claudie move. That is how it works.'
+        : monster.def.name + ' caught you in the ' +
+          PP.World.roomName(pl.x, pl.y) + '.'
+    };
+    PP.Input.block(true);
+    PP.Audio.stopDrone();
+    PP.UI.hideHud(true);
+  },
+
+  tickCinematic: function (dt) {
+    var c = this.cine, m = c.m;
+    c.t += dt;
+    m.lunge = 0.35;
+    m.watched = false;
+    m.vx = m.vy = 0;
+    m.face = PP.U.angLerp(m.face, Math.atan2(c.py - m.y, c.px - m.x),
+                          1 - Math.exp(-8 * dt));
+    // it drags you the last little way in
+    if (c.kind !== 'claudie' && c.t < c.dur * 0.5) {
+      this.player.x = PP.U.approach(this.player.x, m.x, 1.6, dt);
+      this.player.y = PP.U.approach(this.player.y, m.y, 1.6, dt);
+    }
+    var fadeAt = c.dur - 0.45;
+    this.fade = c.t > fadeAt ? Math.min(1, (c.t - fadeAt) / 0.42) : 0;
+    if (c.t >= c.dur) {
+      var reason = c.reason;
+      this.cine = null;
+      PP.Input.block(false);
+      PP.UI.hideHud(false);
+      this.finish(false, reason);
     }
   },
 
@@ -455,6 +523,21 @@ PP.Game = {
       if (this.monsters[i] !== src) this.monsters[i].hear(x, y, radius);
     }
   },
+  /**
+   * Is this thing on screen and unobstructed? Claudie's whole behaviour hangs
+   * off it — and hiding in a locker means you cannot see it either.
+   */
+  playerSees: function (m) {
+    var pl = this.player;
+    if (!pl || pl.hiding) return false;
+    var d = PP.U.dist(pl.x, pl.y, m.x, m.y);
+    if (d > 1200) return false;
+    var a = Math.atan2(m.y - pl.y, m.x - pl.x);
+    var diff = Math.abs(((a - pl.face + Math.PI) % 6.2832 + 6.2832) % 6.2832 - Math.PI);
+    if (diff > 0.80) return false;             // outside the frame
+    return PP.World.lineClear(pl.x, pl.y, m.x, m.y);
+  },
+
   nearestMonster: function (x, y) {
     var best = null, bd = 1e9;
     for (var i = 0; i < this.monsters.length; i++) {
@@ -507,6 +590,8 @@ PP.Game = {
   /* ═════════ end of shift ═════════ */
   finish: function (win, reason) {
     if (this.over) return;
+    this.cine = null; this.fade = 0;
+    PP.UI.hideHud(false);
     this.over = true; this.running = false;
     PP.Audio.stopDrone();
     PP.Input.unlock();

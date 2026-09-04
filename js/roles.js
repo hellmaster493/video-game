@@ -99,6 +99,16 @@ PP.MONSTERS = [
             h: 1.35, teeth: 'buck', segments: 7 }
   },
   {
+    id: 'claudie', name: 'Claudie', unlockAt: 0, build: 'claudie',
+    blurb: 'Prototype 1006. A doll\u2019s face on a person\u2019s frame, half of it never finished. It does not move while you are looking at it.',
+    special: 'still', specialName: 'Never While You Watch',
+    specialText: 'Frozen the moment you look at it. Turn away, and it closes the whole gap.',
+    speed: 96, sense: 900, hearing: 300, vent: false, reach: 74, patience: 99, silent: true,
+    look: { fur: '#6d6558', belly: '#b9b0a0', eye: '#ff2f26', lip: '#8d2b26',
+            h: 3.4, leg: 0.40, torso: 0.30, tr: 0.115, head: 0.145, arm: 0.66,
+            limbR: 0.024, teeth: 'none', porcelain: true }
+  },
+  {
     id: 'catnap', name: 'CatNap', unlockAt: 0, build: 'catnap',
     blurb: 'Four legs, no sound, and a grin with nothing in it. You hear nothing until it is already on you.',
     special: 'gas', specialName: 'Red Smoke',

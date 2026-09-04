@@ -84,7 +84,7 @@ PP.Tex = {
 
   /* ── the surfaces ───────────────────────────────────────── */
   SIZES: { concrete: 512, checker: 512, wall: 512, ceiling: 512, metal: 512,
-           grate: 512, duct: 512, wood: 512, plush: 256, cloth: 256 },
+           grate: 512, duct: 512, wood: 512, plush: 256, cloth: 256, porcelain: 512 },
 
   build: function (name) {
     if (this.cache[name]) return this.cache[name];
@@ -240,6 +240,55 @@ PP.Tex = {
         hh.fillStyle = '#4a4a4a'; hh.fillRect(0, 0, S, 5); hh.fillRect(0, S - 5, S, 5);
         break;
 
+      case 'porcelain': {                  // a doll's face mask: glaze, crazing, chips
+        this.fill(alb, '#ded6c4'); this.fill(h, '#8a8a8a');
+        rough = this.cv(S);
+        var pr = rough.getContext('2d');
+        this.fill(rough, '#3a3a3a');        // glazed ceramic is smooth
+        this.blobs(alb, rnd, 40, 14, 60, ['#e7dfcd', '#cfc6b2', '#d8cfbc'], 0.35);
+        // crazing: fine branching hairline cracks in the glaze
+        for (i = 0; i < 60; i++) {
+          var cx3 = rnd() * S, cy3 = rnd() * S, ca3 = rnd() * 6.2832;
+          a.strokeStyle = 'rgba(96,86,70,' + (0.20 + rnd() * 0.35) + ')';
+          a.lineWidth = 0.8 + rnd() * 0.7;
+          hh.strokeStyle = 'rgba(0,0,0,.55)'; hh.lineWidth = a.lineWidth + 0.6;
+          a.beginPath(); hh.beginPath();
+          a.moveTo(cx3, cy3); hh.moveTo(cx3, cy3);
+          for (var seg2 = 0; seg2 < 7; seg2++) {
+            ca3 += (rnd() - 0.5) * 1.5;
+            cx3 += Math.cos(ca3) * S * 0.035; cy3 += Math.sin(ca3) * S * 0.035;
+            a.lineTo(cx3, cy3); hh.lineTo(cx3, cy3);
+          }
+          a.stroke(); hh.stroke();
+        }
+        // chips, where the glaze has come off and the grey body shows
+        for (i = 0; i < 22; i++) {
+          var px3 = rnd() * S, py3 = rnd() * S, r3 = 3 + rnd() * 16;
+          a.fillStyle = 'rgba(150,142,128,.85)';
+          a.beginPath();
+          for (var v3 = 0; v3 < 7; v3++) {
+            var va = v3 / 7 * 6.2832, vr = r3 * (0.6 + rnd() * 0.6);
+            var vx = px3 + Math.cos(va) * vr, vy = py3 + Math.sin(va) * vr;
+            v3 ? a.lineTo(vx, vy) : a.moveTo(vx, vy);
+          }
+          a.closePath(); a.fill();
+          hh.fillStyle = 'rgba(0,0,0,.6)';
+          hh.beginPath(); hh.arc(px3, py3, r3 * 0.8, 0, 6.2832); hh.fill();
+          pr.fillStyle = 'rgba(220,220,220,.9)';   // bare ceramic is matte
+          pr.beginPath(); pr.arc(px3, py3, r3 * 0.9, 0, 6.2832); pr.fill();
+        }
+        // grime settled into the crazing
+        for (i = 0; i < 18; i++) {
+          var gx = rnd() * S, gy = rnd() * S, gr = S * (0.05 + rnd() * 0.14);
+          var gg = a.createRadialGradient(gx, gy, 0, gx, gy, gr);
+          gg.addColorStop(0, 'rgba(70,60,46,' + (0.08 + rnd() * 0.14) + ')');
+          gg.addColorStop(1, 'rgba(70,60,46,0)');
+          a.fillStyle = gg;
+          a.beginPath(); a.arc(gx, gy, gr, 0, 6.2832); a.fill();
+        }
+        break;
+      }
+
       case 'plush': {                      // short-pile fabric
         this.fill(alb, '#b0b0b0'); this.fill(h, '#808080');
         rough = this.cv(S);
@@ -302,7 +351,7 @@ PP.Tex = {
 
     var set = {
       map: this.tex(alb),
-      normalMap: this.tex(this.normalFromHeight(h, name === 'carpet' ? 1.2 : name === 'plush' ? 2.0 : 3.2)),
+      normalMap: this.tex(this.normalFromHeight(h, name === 'carpet' ? 1.2 : name === 'plush' ? 2.0 : name === 'porcelain' ? 2.4 : 3.2)),
       roughnessMap: rough ? this.tex(rough) : null
     };
     this.cache[name] = set;

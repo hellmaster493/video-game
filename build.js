@@ -32,7 +32,7 @@ if (fragment) {
   html = title + '\n' + style + '\n' + body.trim() + '\n';
 }
 
-const out = path.join(root, 'dist', fragment ? 'fragment.html' : 'playtime-factory.html');
+const out = path.join(root, 'dist', fragment ? 'fragment.html' : 'claudie-playtime.html');
 fs.mkdirSync(path.dirname(out), { recursive: true });
 fs.writeFileSync(out, html);
 console.log(out, '·', (Buffer.byteLength(html) / 1024).toFixed(1) + ' KB');

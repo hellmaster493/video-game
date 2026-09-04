@@ -19,7 +19,8 @@ PP.UI = {
       handL: $('hand-l'), handR: $('hand-r'), hands: $('hands'),
       prompt: $('prompt'), promptText: $('prompt-text'),
       toasts: $('toasts'), sub: $('subtitle'), subWho: $('sub-who'), subLine: $('sub-line'),
-      name: $('playername'), flash: $('flash'), lockhint: $('lockhint')
+      name: $('playername'), flash: $('flash'), lockhint: $('lockhint'),
+      blackout: $('blackout')
     };
 
     var pill = document.createElement('div');
@@ -258,7 +259,10 @@ PP.UI = {
     document.getElementById('btn-menu').onclick = function () {
       self.el.end.classList.add('hidden'); self.toMenu();
     };
-    if ('ontouchstart' in window) this.el.touch.classList.remove('hidden');
+    if (PP.isTouch) {
+      this.el.touch.classList.remove('hidden');
+      document.body.classList.add('touch');
+    }
   },
 
   startGame: function () {
@@ -275,8 +279,7 @@ PP.UI = {
     this.clearToasts();
     PP.Game.start({ mode: S.mode, role: S.role, map: S.map || 'factory',
                     monster: S.monster || 'huggy', hunter: S.hunter || 'huggy' });
-    PP.Input.wantLock = true;
-    PP.Input.lock();
+    if (!PP.isTouch) { PP.Input.wantLock = true; PP.Input.lock(); }
     this.refreshHud(PP.Game);
     var g = PP.Game;
     this.toast(g.mode === 'monster' ? 'Hunt them down. Left-click to strike.'
@@ -299,6 +302,7 @@ PP.UI = {
     PP.Game.paused = v;
     this.el.pause.classList.toggle('hidden', !v);
     PP.Input.block(v);
+    if (PP.isTouch) return;
     if (v) PP.Input.unlock(); else PP.Input.lock();
   },
 
@@ -329,9 +333,14 @@ PP.UI = {
 
     this.el.cross.classList.toggle('hidden', PP.Scene.thirdPerson && isMonster);
     this.el.flash.style.opacity = Math.max(0, Math.min(1, g.flash));
-    this.el.lockhint.classList.toggle('hidden', PP.Input.locked || !g.running || g.paused);
+    this.el.blackout.style.opacity = Math.max(0, Math.min(1, g.fade || 0));
+    this.el.lockhint.classList.toggle('hidden',
+      PP.isTouch || PP.Input.locked || !g.running || g.paused);
     PP.Minimap.draw(g, this.el.minimap, false);
   },
+
+  /** Pull the HUD out of the way while the camera is not yours. */
+  hideHud: function (on) { this.el.hud.classList.toggle('cine', !!on); },
 
   objective: function (text, pct) {
     this.el.objText.textContent = text;
@@ -370,6 +379,7 @@ PP.UI = {
     var w = this.el.wheel;
     w.classList.toggle('hidden', !open);
     PP.Input.block(open);
+    if (PP.isTouch) return;
     if (open) PP.Input.unlock(); else if (PP.Game.running && !PP.Game.paused) PP.Input.lock();
     if (!open) { w.innerHTML = ''; return; }
     PP.Audio.ui();
@@ -420,7 +430,9 @@ PP.UI = {
   toggleMap: function (open) {
     this.mapOpen = open;
     this.el.bigmap.classList.toggle('hidden', !open);
-    if (open) { PP.Input.unlock(); PP.Minimap.draw(PP.Game, this.el.bigmapCv, true); }
+    if (open) PP.Minimap.draw(PP.Game, this.el.bigmapCv, true);
+    if (PP.isTouch) return;
+    if (open) PP.Input.unlock();
     else if (PP.Game.running && !PP.Game.paused) PP.Input.lock();
   },
 

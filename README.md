@@ -1,8 +1,11 @@
-# Playtime Factory RP
+# Claudie Playtime
 
 A first-person 3D roleplay horror game set in an abandoned toy factory. Clock in
 as one of five staff roles, work the floor, chat with your coworkers — and try to
 be on the lift before the toys notice you.
+
+Seven toys are down there. One of them is Claudie, and Claudie does not move
+while you are looking at it.
 
 Runs in any browser with WebGL. No build step, no install, no CDN: three.js is
 vendored and every texture, model and sound is generated at runtime, so the whole
@@ -218,7 +221,7 @@ your torch, `Dust Sheet` makes monsters lose your trail sooner).
 ## Single-file build
 
 ```bash
-node build.js              # dist/playtime-factory.html — the whole game in one file
+node build.js              # dist/claudie-playtime.html — the whole game in one file
 node build.js --fragment   # same, without the <html>/<head>/<body> wrapper
 ```
 

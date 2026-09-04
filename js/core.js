@@ -39,6 +39,9 @@ PP.rng = function (seed) {
 };
 
 /* ── input ───────────────────────────────────────────────── */
+PP.isTouch = (typeof window !== 'undefined') &&
+  (('ontouchstart' in window) || (navigator.maxTouchPoints || 0) > 0);
+
 PP.Input = {
   keys: {}, pressed: {},
   mouse: { x: 0, y: 0, l: false, r: false, lHit: false, rHit: false },
@@ -108,6 +111,31 @@ PP.Input = {
     if (!stick) return;
     var knob = stick.querySelector('i'), id = null, cx = 0, cy = 0, R = 46;
 
+    /* ── look: drag anywhere on the right half that is not a control ── */
+    var lookId = null, lx = 0, ly = 0;
+    var pad = document.getElementById('lookpad');
+    if (pad) {
+      pad.addEventListener('touchstart', function (e) {
+        if (self._blocked) return;
+        var t = e.changedTouches[0];
+        lookId = t.identifier; lx = t.clientX; ly = t.clientY;
+        e.preventDefault();
+      }, { passive: false });
+      pad.addEventListener('touchmove', function (e) {
+        for (var i = 0; i < e.changedTouches.length; i++) {
+          var t = e.changedTouches[i];
+          if (t.identifier !== lookId) continue;
+          self.look.dx += (t.clientX - lx) * 2.1;   // touch drags feel slow at mouse gain
+          self.look.dy += (t.clientY - ly) * 2.1;
+          lx = t.clientX; ly = t.clientY;
+        }
+        e.preventDefault();
+      }, { passive: false });
+      var endLook = function () { lookId = null; };
+      pad.addEventListener('touchend', endLook);
+      pad.addEventListener('touchcancel', endLook);
+    }
+
     function down(e) {
       var t = e.changedTouches[0]; id = t.identifier;
       var r = stick.getBoundingClientRect();
@@ -138,12 +166,24 @@ PP.Input = {
       var act = b.dataset.act;
       b.addEventListener('touchstart', function (e) {
         e.preventDefault();
-        if (act === 'sprint') self.touch.sprint = true;
-        else if (act === 'interact') self.touch.interact = true;
-        else if (act === 'chat') self.pressed.c = true;
+        if (self._blocked && act !== 'pause') return;
+        switch (act) {
+          case 'sprint':   self.touch.sprint = true; break;
+          case 'interact': self.touch.interact = true; self.keys.e = true; break;
+          case 'chat':     self.pressed.c = true; break;
+          case 'map':      self.pressed.Tab = true; break;
+          case 'pause':    self.pressed.Escape = true; break;
+          case 'ability':  self.pressed.q = true; break;
+          case 'torch':    self.pressed.f = true; break;
+          case 'hand-l':   self.mouse.lHit = true; self.mouse.l = true; break;
+          case 'hand-r':   self.mouse.rHit = true; self.mouse.r = true; break;
+        }
       }, { passive: false });
       b.addEventListener('touchend', function () {
         if (act === 'sprint') self.touch.sprint = false;
+        if (act === 'interact') self.keys.e = false;
+        if (act === 'hand-l') self.mouse.l = false;
+        if (act === 'hand-r') self.mouse.r = false;
       });
     });
   },
@@ -166,7 +206,8 @@ PP.Save = {
   data: null,
   defaults: function () {
     return {
-      name: 'New Hire', tokens: 0, role: 'worker', mode: 'roam', gfx: 'high', map: 'factory',
+      name: 'New Hire', tokens: 0, role: 'worker', mode: 'roam', map: 'factory',
+      gfx: PP.isTouch ? 'medium' : 'high',
       owned: {}, unlocked: {}, best: {}, shifts: 0
     };
   },
@@ -241,6 +282,26 @@ PP.Audio = {
     this.tone(1400, 0.5, 'square', 0.05, 700);
   },
 
+  ceramic: function () {
+    this.tone(2600 + Math.random() * 900, 0.045, 'square', 0.035, 1800);
+    this.noise(0.05, 5200, 0.05, 2.0);
+  },
+
+  /** a thin high tone that rises as Claudie gets closer */
+  dread: function (level) {
+    if (!this.ctx || this.muted) return;
+    if (!this._dread) {
+      var o = this.ctx.createOscillator(), g = this.ctx.createGain();
+      o.type = 'sine'; o.frequency.value = 2350;
+      g.gain.value = 0;
+      o.connect(g); g.connect(this.master); o.start();
+      this._dread = { o: o, g: g };
+    }
+    var t = this.ctx.currentTime;
+    this._dread.g.gain.setTargetAtTime(level * level * 0.020, t, 0.35);
+    this._dread.o.frequency.setTargetAtTime(2250 + level * 520, t, 0.8);
+  },
+
   /** low ambience whose pitch/volume rises with danger */
   drone: function (level) {
     if (!this.ctx || this.muted) return;
@@ -259,5 +320,6 @@ PP.Audio = {
   },
   stopDrone: function () {
     if (this._drone && this.ctx) this._drone.g.gain.setTargetAtTime(0, this.ctx.currentTime, 0.3);
+    if (this._dread && this.ctx) this._dread.g.gain.setTargetAtTime(0, this.ctx.currentTime, 0.3);
   }
 };

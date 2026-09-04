@@ -713,6 +713,266 @@ PP.Models = {
     return rig;
   },
 
+  /**
+   * Claudie — prototype 1006. A doll's porcelain face on a person's frame,
+   * half of it never upholstered. The mask splits down the middle when it
+   * reaches you, which is the only time you see what is behind it.
+   */
+  mon_claudie: function (def) {
+    var M = PP.M, L = def.look, g = new THREE.Group();
+    var H = L.h * M;
+    var rig = { root: g, height: H };
+
+    var cloth = this.plush(new THREE.Color(L.fur).getHex());
+    var clothPale = this.plush(new THREE.Color(L.belly).getHex());
+    var steel = this.plain(0x8d939d, 0.38, 0.82);
+    var wire = this.plain(0x2a2c31, 0.55, 0.35);
+    var maw = this.plain(0x0a0709, 0.95, 0);
+    rig.fur = cloth; rig.furDark = wire; rig.belly = clothPale;
+    rig.lip = this.plain(new THREE.Color(L.lip).getHex(), 0.5, 0);
+
+    if (!this.matCache.porcelain) {
+      var set = PP.Tex.build('porcelain');
+      var pm = new THREE.MeshPhysicalMaterial({
+        map: set.map.clone(), normalMap: set.normalMap.clone(),
+        roughnessMap: set.roughnessMap ? set.roughnessMap.clone() : null,
+        color: 0xffffff, roughness: 0.30, metalness: 0.0,
+        clearcoat: 0.9, clearcoatRoughness: 0.20, envMapIntensity: 0.5
+      });
+      pm.map.needsUpdate = pm.normalMap.needsUpdate = true;
+      this.matCache.porcelain = pm;
+    }
+    var china = this.matCache.porcelain;
+
+    var legLen = H * L.leg, torsoH = H * L.torso, torsoR = H * L.tr;
+    var armLen = H * L.arm, limbR = H * L.limbR;
+
+    var hips = new THREE.Group(); hips.position.y = legLen; g.add(hips); rig.hips = hips;
+
+    // a bare steel pelvis, with cloth only where somebody got round to it
+    var pel = [];
+    pel.push({ g: new THREE.TorusGeometry(torsoR * 0.85, torsoR * 0.16, 8, 16),
+               m: this.xf(0, 0, 0, Math.PI / 2, 0, 0) });
+    pel.push({ g: new THREE.CylinderGeometry(torsoR * 0.18, torsoR * 0.18, torsoR * 0.9, 8),
+               m: this.xf(0, torsoR * 0.4, 0) });
+    hips.add(this.mesh(this.merge(pel), steel));
+    var wrap = this.mesh(new THREE.SphereGeometry(torsoR * 0.9, 18, 12), cloth);
+    wrap.scale.set(1, 0.6, 0.85);
+    hips.add(wrap);
+
+    var spine = new THREE.Group();
+    spine.position.y = torsoR * 0.3;
+    spine.rotation.x = 0.16;                     // it stoops
+    hips.add(spine); rig.spine = spine;
+
+    // ribcage: bent rod ribs on a steel column, with plush panels over one side
+    var frame = [];
+    frame.push({ g: new THREE.CylinderGeometry(torsoR * 0.16, torsoR * 0.20, torsoH, 8),
+                 m: this.xf(0, torsoH / 2, 0) });
+    for (var rb = 0; rb < 6; rb++) {
+      var ry = torsoH * (0.16 + rb * 0.14);
+      var rr = torsoR * (0.95 - Math.abs(rb - 2) * 0.10);
+      frame.push({ g: new THREE.TorusGeometry(rr, torsoR * 0.055, 6, 18, Math.PI * 1.5),
+                   m: this.xf(0, ry, 0, Math.PI / 2, 0, Math.PI * 0.25, 1, 1, 0.78) });
+    }
+    spine.add(this.mesh(this.merge(frame), steel));
+    // loose wiring hanging out of the chest cavity
+    for (var wI = 0; wI < 5; wI++) {
+      var wg = new THREE.Group();
+      wg.position.set((wI - 2) * torsoR * 0.22, torsoH * 0.30, torsoR * 0.20);
+      var strand = this.tube(torsoR * 0.035, torsoR * 0.02, torsoH * (0.20 + wI * 0.05), wire,
+                             0, -torsoH * (0.10 + wI * 0.025), 0);
+      wg.rotation.z = (wI - 2) * 0.16;
+      wg.add(strand);
+      spine.add(wg);
+    }
+    // the upholstered half
+    var panel = this.mesh(new THREE.SphereGeometry(torsoR * 1.02, 20, 14, 0, Math.PI), cloth);
+    panel.scale.set(1, torsoH / (torsoR * 1.6), 0.82);
+    panel.position.y = torsoH * 0.48;
+    panel.rotation.y = -Math.PI * 0.25;
+    spine.add(panel);
+    var shoulder = this.mesh(new THREE.CylinderGeometry(torsoR * 0.16, torsoR * 0.16,
+                                                        torsoR * 2.4, 10), steel);
+    shoulder.rotation.z = Math.PI / 2;
+    shoulder.position.y = torsoH * 0.94;
+    spine.add(shoulder);
+
+    // two pompoms left of what was a row of them; one is hanging by its thread
+    var pompMat = this.plush(new THREE.Color(L.lip).getHex());
+    var pomp1 = this.mesh(new THREE.SphereGeometry(torsoR * 0.30, 14, 10), pompMat);
+    pomp1.position.set(-torsoR * 0.18, torsoH * 0.68, torsoR * 0.72);
+    spine.add(pomp1);
+    var hang = new THREE.Group();
+    hang.position.set(-torsoR * 0.10, torsoH * 0.40, torsoR * 0.70);
+    hang.add(this.tube(torsoR * 0.02, torsoR * 0.02, torsoR * 0.55, wire, 0, -torsoR * 0.28, 0));
+    var pomp2 = this.mesh(new THREE.SphereGeometry(torsoR * 0.24, 14, 10), pompMat);
+    pomp2.position.y = -torsoR * 0.62;
+    hang.add(pomp2);
+    hang.rotation.z = 0.18;
+    spine.add(hang);
+    rig.pompom = hang;
+    // the threads where the others used to be
+    for (var th = 0; th < 3; th++) {
+      spine.add(this.tube(torsoR * 0.012, torsoR * 0.012, torsoR * 0.18, wire,
+                          torsoR * (0.10 + th * 0.13), torsoH * (0.52 - th * 0.10),
+                          torsoR * 0.70));
+    }
+
+    // rivets and a stamped plate, because somebody built this in a workshop
+    var hw = [];
+    for (var hv = 0; hv < 10; hv++) {
+      var ha = (hv / 10) * 6.2832;
+      hw.push({ g: new THREE.SphereGeometry(torsoR * 0.055, 8, 6),
+                m: this.xf(Math.cos(ha) * torsoR * 0.88, torsoH * 0.20,
+                           Math.sin(ha) * torsoR * 0.66) });
+    }
+    hw.push({ g: new THREE.BoxGeometry(torsoR * 0.7, torsoR * 0.34, torsoR * 0.06),
+              m: this.xf(torsoR * 0.30, torsoH * 0.80, torsoR * 0.74) });
+    spine.add(this.mesh(this.merge(hw), steel));
+
+    // arms: one finished, one still bare metal
+    var self = this;
+    function arm(bare) {
+      return self.limb3({
+        upper: armLen * 0.50, lower: armLen * 0.44,
+        r0: limbR * (bare ? 0.9 : 1.5), r1: limbR * (bare ? 0.7 : 1.15),
+        r2: limbR * (bare ? 0.6 : 0.95),
+        mat: bare ? steel : cloth, jointMat: bare ? wire : clothPale,
+        end: self.handMesh(limbR * (bare ? 1.1 : 1.9), 4.2, bare ? steel : cloth, 0.16)
+      });
+    }
+    rig.armL = arm(false); rig.armR = arm(true);
+    rig.armL.position.set(-torsoR * 1.15, torsoH * 0.94, 0);
+    rig.armR.position.set(torsoR * 1.15, torsoH * 0.94, 0);
+    rig.armL.rotation.z = 0.10; rig.armR.rotation.z = -0.10;
+    spine.add(rig.armL); spine.add(rig.armR);
+
+    // digitigrade legs — the knee is on backwards
+    function leg() {
+      return self.limb3({
+        upper: legLen * 0.44, lower: legLen * 0.40,
+        r0: limbR * 1.7, r1: limbR * 1.15, r2: limbR * 0.9,
+        mat: cloth, jointMat: steel,
+        end: self.footMesh(limbR * 1.5, wire)
+      });
+    }
+    rig.legL = leg(); rig.legR = leg();
+    rig.legL.position.set(-torsoR * 0.5, 0, 0);
+    rig.legR.position.set(torsoR * 0.5, 0, 0);
+    hips.add(rig.legL); hips.add(rig.legR);
+    rig.legBias = { hip: -0.30, knee: 0.85, ankle: -0.55 };
+
+    // neck: exposed vertebrae, too long by half
+    var neck = new THREE.Group();
+    neck.position.y = torsoH * 1.02;
+    spine.add(neck); rig.neck = neck;
+    var vert = [];
+    for (var v = 0; v < 5; v++) {
+      vert.push({ g: new THREE.TorusGeometry(torsoR * 0.24, torsoR * 0.07, 6, 12),
+                  m: this.xf(0, v * H * 0.020, 0, Math.PI / 2, 0, 0) });
+    }
+    neck.add(this.mesh(this.merge(vert), steel));
+
+    var r = H * L.head;
+    var head = new THREE.Group();
+    head.position.y = H * 0.115;
+    head.rotation.z = 0.11;                      // the head never sits straight
+    neck.add(head); rig.head = head;
+    rig.headR = r;
+
+    // the mask, split down the midline into two hinged halves
+    rig.jawL = new THREE.Group(); rig.jawR = new THREE.Group();
+    head.add(rig.jawL); head.add(rig.jawR);
+    var paint = this.plain(0x1c1a20, 0.55, 0);
+    var nose = this.plain(0x8e2f28, 0.42, 0);
+    [[rig.jawL, 0], [rig.jawR, Math.PI]].forEach(function (half) {
+      var grp = half[0], phi = half[1], side = phi === 0 ? 1 : -1;
+
+      // the shell is a face, not a ball: brow, cheek and a little chin
+      var shell = [];
+      shell.push({ g: new THREE.SphereGeometry(r, 26, 22, phi, Math.PI),
+                   m: self.xf(0, 0, 0, 0, 0, 0, 1, 1.18, 0.94) });
+      shell.push({ g: new THREE.SphereGeometry(r * 0.42, 14, 10, phi, Math.PI),
+                   m: self.xf(side * r * 0.36, r * 0.44, r * 0.52, 0, 0, 0, 1.3, 0.5, 0.6) });
+      shell.push({ g: new THREE.SphereGeometry(r * 0.38, 14, 10, phi, Math.PI),
+                   m: self.xf(side * r * 0.44, -r * 0.06, r * 0.50, 0, 0, 0, 1.0, 0.9, 0.7) });
+      shell.push({ g: new THREE.SphereGeometry(r * 0.34, 14, 10, phi, Math.PI),
+                   m: self.xf(side * r * 0.10, -r * 0.72, r * 0.34, 0, 0, 0, 1.2, 0.8, 0.9) });
+      grp.add(self.mesh(self.merge(shell), china));
+
+      // a hollow socket where an eye should be, with something small and lit far back
+      var socket = self.mesh(new THREE.SphereGeometry(r * 0.30, 16, 12), maw);
+      socket.position.set(side * r * 0.40, r * 0.20, r * 0.74);
+      socket.scale.set(1.15, 1.35, 0.7);
+      grp.add(socket);
+      var spark = self.mesh(new THREE.SphereGeometry(r * 0.055, 10, 8),
+                            self.plain(0x2a0806, 0.4, 0,
+                                       new THREE.Color(L.eye).getHex(), 1.6));
+      spark.position.set(side * r * 0.40, r * 0.20, r * 0.62);
+      grp.add(spark);
+
+      // pierrot marks: a painted diamond above and a teardrop below
+      var dia = self.mesh(new THREE.OctahedronGeometry(r * 0.13), paint);
+      dia.position.set(side * r * 0.40, r * 0.50, r * 0.72);
+      dia.scale.set(0.7, 1.5, 0.22);
+      grp.add(dia);
+      var tear = self.mesh(new THREE.ConeGeometry(r * 0.075, r * 0.26, 10), paint);
+      tear.position.set(side * r * 0.38, -r * 0.16, r * 0.76);
+      tear.rotation.x = Math.PI;
+      tear.scale.set(1, 1, 0.25);
+      grp.add(tear);
+
+      // half a nose, so it splits with the rest of the face
+      var nb = self.mesh(new THREE.SphereGeometry(r * 0.15, 14, 10, phi, Math.PI), nose);
+      nb.position.set(0, r * 0.02, r * 0.84);
+      grp.add(nb);
+
+      // half of a painted smile, chipped, turning up at the corner
+      var lipArc = self.mesh(new THREE.TorusGeometry(r * 0.54, r * 0.05, 8, 20, Math.PI * 0.55),
+                             rig.lip);
+      lipArc.position.set(0, -r * 0.20, r * 0.62);
+      lipArc.rotation.z = side > 0 ? Math.PI * 0.96 : Math.PI * 0.49;
+      lipArc.scale.set(1, 0.58, 0.5);
+      grp.add(lipArc);
+    });
+
+    // a ruff that has lost most of its points
+    var ruff = new THREE.Group();
+    ruff.position.y = -r * 0.05;
+    head.add(ruff);
+    for (var rp = 0; rp < 11; rp++) {
+      if (rp === 3 || rp === 7) continue;                 // torn away
+      var ra = (rp / 11) * 6.2832;
+      var pt = this.mesh(new THREE.ConeGeometry(r * 0.16, r * 0.46, 5),
+                         rp % 2 ? clothPale : cloth,
+                         Math.cos(ra) * r * 0.62, -r * 0.55, Math.sin(ra) * r * 0.62);
+      pt.rotation.z = -Math.cos(ra) * 1.25;
+      pt.rotation.x = Math.sin(ra) * 1.25 + 0.5;
+      ruff.add(pt);
+    }
+
+    // what the mask is covering
+    var inner = this.mesh(new THREE.SphereGeometry(r * 0.82, 18, 14), maw);
+    inner.scale.set(0.9, 1.1, 0.9);
+    head.add(inner);
+    var fangs = [];
+    for (var t = 0; t < 18; t++) {
+      var fa = (t / 18) * Math.PI * 2;
+      fangs.push({ g: new THREE.ConeGeometry(r * 0.055, r * 0.42, 5),
+                   m: this.xf(Math.cos(fa) * r * 0.52, Math.sin(fa) * r * 0.60, r * 0.30,
+                              Math.PI / 2 + 0.5, 0, 0) });
+    }
+    head.add(this.mesh(this.merge(fangs), this.plain(0xd9d2c0, 0.4, 0)));
+
+    rig.eyeHeight = legLen + torsoH + H * 0.14;
+    rig.jointed = true;
+    rig.armSwing = 0.65;
+    rig.idleSway = 2.1;
+    rig.stutter = true;
+    return rig;
+  },
+
   /** Boxy Boo: a crate, a steel spring, and a head that comes at you. */
   mon_boxy: function (def) {
     var M = PP.M, L = def.look, g = new THREE.Group();

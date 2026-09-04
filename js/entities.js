@@ -362,6 +362,28 @@ Monster.prototype.update = function (dt, game) {
     return;
   }
 
+  // ── Claudie: it will not move while it is being looked at ──
+  if (this.def.special === 'still' && game.mode !== 'monster') {
+    this.watched = game.playerSees(this);
+    this.state = 'chase';
+    this.target = game.player;
+    this.lastSeen = { x: game.player.x, y: game.player.y };
+    this.interest = 9999;
+    if (this.watched) {
+      this.vx = this.vy = 0;
+      this.stillT = (this.stillT || 0) + dt;
+      // it does keep turning to face you, slowly, which is worse
+      this.turnTo(dt, game.player.x, game.player.y, 0.5);
+      this.tryCatch(game);
+      return;
+    }
+    if (this.stillT > 0.4) { PP.Audio.ceramic(); }
+    this.stillT = 0;
+    this.goto({ x: game.player.x, y: game.player.y }, dt, this.def.speed, true);
+    this.tryCatch(game);
+    return;
+  }
+
   var prey = game.preyList(), seen = null, seenD = 1e9;
   for (var i = 0; i < prey.length; i++) {
     var p = prey[i];

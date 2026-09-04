@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
 <meta name="theme-color" content="#0a0d14">
-<title>Playtime Factory RP</title>
+<title>Claudie Playtime</title>
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -12,6 +12,7 @@
 <div id="stage">
   <canvas id="game"></canvas>
   <div id="flash"></div>
+  <div id="blackout"></div>
   <div id="grain"></div>
   <div id="vig"></div>
 
@@ -51,11 +52,20 @@
   <div id="wheel" class="hidden"></div>
 
   <div id="touch" class="hidden">
+    <div id="lookpad"></div>
     <div id="stick"><i></i></div>
     <div id="tbuttons">
+      <button class="tbtn hand-l" data-act="hand-l">RED</button>
+      <button class="tbtn hand-r" data-act="hand-r">BLUE</button>
       <button class="tbtn" data-act="interact">E</button>
       <button class="tbtn" data-act="sprint">RUN</button>
-      <button class="tbtn" data-act="chat">CHAT</button>
+      <button class="tbtn" data-act="ability">Q</button>
+      <button class="tbtn" data-act="torch">TORCH</button>
+    </div>
+    <div id="tbuttons-top">
+      <button class="tbtn sm" data-act="chat">CHAT</button>
+      <button class="tbtn sm" data-act="map">MAP</button>
+      <button class="tbtn sm" data-act="pause">II</button>
     </div>
   </div>
 
@@ -63,8 +73,8 @@
   <div id="menu" class="screen">
     <div class="vignette"></div>
     <div class="menu-inner">
-      <h1 class="logo">PLAYTIME <span>FACTORY</span></h1>
-      <p class="tag">roleplay &middot; chapter zero</p>
+      <h1 class="logo">CLAUDIE <span>PLAYTIME</span></h1>
+      <p class="tag">prototype 1006 &middot; chapter zero</p>
 
       <div class="menu-tabs">
         <button class="tab active" data-tab="play">Play</button>
@@ -146,7 +156,7 @@
 
   <div id="boot" class="screen">
     <div class="menu-inner narrow">
-      <h2>PLAYTIME FACTORY</h2>
+      <h2>CLAUDIE PLAYTIME</h2>
       <p class="hint">Building the factory&hellip;</p>
     </div>
   </div>
