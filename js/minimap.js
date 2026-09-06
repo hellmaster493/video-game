@@ -123,6 +123,31 @@ PP.Minimap = {
         c.beginPath(); c.arc(mo.x, mo.y, 16 / sc, 0, 6.2832); c.fill();
       }
     }
+    // everybody else with the link, so you can actually find each other
+    var mates = PP.Net.list();
+    for (var q = 0; q < mates.length; q++) {
+      var mt = mates[q];
+      if (mt.hiding) continue;
+      if (mt.isMonster) {
+        if (!game.showMonsterOnMap() && !game.asMonster) continue;
+        c.fillStyle = '#e6404f';
+      } else c.fillStyle = mt.downed ? 'rgba(230,64,79,.85)' : '#59c2ff';
+      c.beginPath(); c.arc(mt.x, mt.y, (mt.downed ? 17 : 13) / sc, 0, 6.2832); c.fill();
+      if (mt.downed) {
+        c.strokeStyle = '#fff'; c.lineWidth = 5 / sc;
+        c.beginPath();
+        c.moveTo(mt.x - 12, mt.y); c.lineTo(mt.x + 12, mt.y);
+        c.moveTo(mt.x, mt.y - 12); c.lineTo(mt.x, mt.y + 12);
+        c.stroke();
+      }
+      if (big) {
+        c.fillStyle = '#c9d4e8';
+        c.font = (11 / sc) + 'px Trebuchet MS';
+        c.textAlign = 'center';
+        c.fillText(mt.name, mt.x, mt.y - 26 / sc);
+        c.textAlign = 'left';
+      }
+    }
     if (game.player) {
       var pl = game.player;
       c.fillStyle = '#fff';

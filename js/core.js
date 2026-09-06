@@ -100,7 +100,10 @@ PP.Input = {
 
   lock: function (canvas) {
     var el = canvas || this.canvas;
-    if (el && el.requestPointerLock) { try { el.requestPointerLock(); } catch (e) {} }
+    if (!el || !el.requestPointerLock) return;
+    // newer browsers hand back a promise that rejects without a user gesture
+    try { var r = el.requestPointerLock(); if (r && r.catch) r.catch(function () {}); }
+    catch (e) {}
   },
   unlock: function () {
     if (document.exitPointerLock) { try { document.exitPointerLock(); } catch (e) {} }

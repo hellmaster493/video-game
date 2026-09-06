@@ -20,7 +20,9 @@ PP.UI = {
       prompt: $('prompt'), promptText: $('prompt-text'),
       toasts: $('toasts'), sub: $('subtitle'), subWho: $('sub-who'), subLine: $('sub-line'),
       name: $('playername'), flash: $('flash'), lockhint: $('lockhint'),
-      blackout: $('blackout')
+      blackout: $('blackout'),
+      lobby: $('lobby'), lobbyLine: $('lobby-line'), lobbyList: $('lobby-list'),
+      lobbyNote: $('lobby-note'), party: $('party'), partyList: $('party-list')
     };
 
     var pill = document.createElement('div');
@@ -33,6 +35,7 @@ PP.UI = {
     this.buildMenu();
     this.bind();
     this.el.name.value = PP.Save.data.name || '';
+    this.netRefresh();
   },
 
   /* ═════════ 3D portraits ═════════ */
@@ -232,6 +235,66 @@ PP.UI = {
     host.parentNode.insertBefore(bal, host);
   },
 
+  /* ═════════ who else has the link ═════════ */
+  /**
+   * Redrawn from PP.Net twice a second. Every name here came off the wire, so
+   * it goes in as text — never as markup.
+   */
+  netRefresh: function () {
+    var N = PP.Net, el = this.el;
+    if (!el.lobby) return;
+    var rows = N.roster(), i;
+
+    if (N.status === 'connecting') {
+      el.lobbyLine.textContent = 'Looking for other players\u2026';
+    } else if (!N.online) {
+      el.lobbyLine.textContent = 'Playing solo \u2014 this copy has no room to join.';
+    } else if (rows.length <= 1) {
+      el.lobbyLine.textContent =
+        'You are the only one here. Send the link and they drop straight in.';
+    } else {
+      el.lobbyLine.textContent = rows.length + ' people have this open. ' +
+        'Everyone plays the same shift \u2014 there is no lobby limit.';
+    }
+    el.lobbyNote.textContent = (N.online && N.session)
+      ? (N.isHost ? 'You are running the factory for the room.'
+                  : 'Following ' + (N.hostName || 'the host') + '\u2019s factory.')
+      : '';
+
+    var fill = function (host, list, mark, cap) {
+      host.textContent = '';
+      var shown = cap ? Math.min(list.length, cap) : list.length;
+      for (var j = 0; j < shown; j++) {
+        var r = list[j];
+        var d = document.createElement('div');
+        d.className = 'pl' + (r.me ? ' me' : '') + (r.down ? ' down' : '');
+        var n = document.createElement('b');
+        n.textContent = r.name;                       // text, always
+        d.appendChild(n);
+        var w = document.createElement('span');
+        w.textContent = r.down ? 'down' : r.what;
+        d.appendChild(w);
+        if (r.host && mark) {
+          var h = document.createElement('i');
+          h.textContent = 'host';
+          d.appendChild(h);
+        }
+        host.appendChild(d);
+      }
+      if (shown < list.length) {                     // a big room stays legible
+        var more = document.createElement('div');
+        more.className = 'pl more';
+        more.textContent = '+ ' + (list.length - shown) + ' more';
+        host.appendChild(more);
+      }
+    };
+    fill(el.lobbyList, rows, true, 14);
+
+    var playing = PP.Game.running && !PP.Game.over && N.online && rows.length > 1;
+    el.party.classList.toggle('hidden', !playing);
+    if (playing) fill(el.partyList, rows, false, 8);
+  },
+
   /* ═════════ wiring ═════════ */
   bind: function () {
     var self = this, S = PP.Save.data;
@@ -277,18 +340,24 @@ PP.UI = {
     this.el.hud.classList.remove('hidden');
     this.el.end.classList.add('hidden');
     this.clearToasts();
-    PP.Game.start({ mode: S.mode, role: S.role, map: S.map || 'factory',
-                    monster: S.monster || 'huggy', hunter: S.hunter || 'huggy' });
+    var opts = PP.Net.claimSession({ mode: S.mode, role: S.role, map: S.map || 'factory',
+                                     monster: S.monster || 'huggy',
+                                     hunter: S.hunter || 'huggy' });
+    PP.Game.start(opts);
     if (!PP.isTouch) { PP.Input.wantLock = true; PP.Input.lock(); }
     this.refreshHud(PP.Game);
+    this.netRefresh();
     var g = PP.Game;
-    this.toast(g.mode === 'monster' ? 'Hunt them down. Left-click to strike.'
+    this.toast(g.asMonster ? 'Hunt them down. Left-click to strike.'
              : g.mode === 'night' ? 'Torch on. Five nodes. Do not get cornered.'
              : 'Take your time. Say hello to people.');
+    if (PP.Net.banner) this.toast(PP.Net.banner, 'good');
   },
 
   toMenu: function () {
     PP.Game.running = false; PP.Game.paused = false;
+    PP.Net.session = null; PP.Net.wantHost = false;
+    PP.Net.dropAll(); PP.Net.push();
     PP.Audio.stopDrone();
     PP.Input.wantLock = false;
     PP.Input.unlock();
@@ -296,6 +365,7 @@ PP.UI = {
     this.el.hud.classList.add('hidden');
     this.el.menu.classList.remove('hidden');
     this.buildMenu();
+    this.netRefresh();
   },
 
   setPause: function (v) {
@@ -309,7 +379,7 @@ PP.UI = {
   /* ═════════ HUD ═════════ */
   refreshHud: function (g) {
     if (!g.player) return;
-    var isMonster = g.mode === 'monster';
+    var isMonster = g.asMonster;
     this.el.roleName.textContent = isMonster ? g.player.def.name : g.player.role.name;
     this.el.tokens.innerHTML = '<b>' + g.saveData.tokens + '</b> tokens';
     this.el.clock.textContent = 'Shift ' + g.shift + ' · ' + PP.U.fmtTime(g.clock);
@@ -410,6 +480,7 @@ PP.UI = {
     if (!e || !g.player) return;
     g.player.say(e.say, 3.2);
     g.player.emote = { anim: e.anim, t: 2.2 };
+    PP.Net.say(e.say);
     if (e.kind === 'chat') {
       PP.Audio.ui();
       g.makeNoise(g.player.x, g.player.y, 200, g.player);
@@ -439,7 +510,7 @@ PP.UI = {
   endCard: function (win, reason, rows, g) {
     var self = this;
     var t = document.getElementById('end-title');
-    t.textContent = win ? (g.mode === 'monster' ? 'ALL ACCOUNTED FOR' : 'CLOCKED OUT ALIVE') : 'SHIFT OVER';
+    t.textContent = win ? (g.asMonster ? 'ALL ACCOUNTED FOR' : 'CLOCKED OUT ALIVE') : 'SHIFT OVER';
     t.style.color = win ? '#49d67f' : '#e6404f';
     document.getElementById('end-body').textContent = reason;
     var host = document.getElementById('end-payout');

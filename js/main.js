@@ -11,6 +11,7 @@
   PP.Input.init(canvas);
   PP.World.build(1337, PP.Save.data.map);   // a world exists before the first shift
   PP.UI.init();
+  PP.Net.init();                            // the room, if this page has one
   document.getElementById('boot').classList.add('hidden');
 
   ['pointerdown', 'keydown', 'touchstart'].forEach(function (ev) {
@@ -29,6 +30,7 @@
     hotkeys();
 
     var g = PP.Game;
+    PP.Net.tick(dt);                        // everyone else moves first
     if (g.running && !g.paused && !g.over) g.update(dt);
     if (g.player && PP.Scene.ready) {
       PP.Scene.update(g, dt);

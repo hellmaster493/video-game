@@ -34,6 +34,11 @@
 
     <canvas id="minimap" width="220" height="160"></canvas>
 
+    <div id="party" class="hidden">
+      <div class="party-h">IN THE FACTORY</div>
+      <div id="party-list"></div>
+    </div>
+
     <div class="hud-bottom">
       <div class="meter" title="Stamina"><i id="stamina-fill"></i></div>
       <div class="meter fear" title="Fear"><i id="fear-fill"></i></div>
@@ -91,6 +96,15 @@
         <label class="namefield">Your name tag
           <input id="playername" maxlength="14" placeholder="New Hire" autocomplete="off">
         </label>
+
+        <div class="section"><h3>Who is down there</h3>
+          <p>Anyone with this link walks into the same factory. Six of you or sixty &mdash;
+          there is no lobby size and nobody gets split into a second copy.</p></div>
+        <div id="lobby">
+          <p id="lobby-line">Looking for other players&hellip;</p>
+          <div id="lobby-list"></div>
+          <p id="lobby-note" class="hint"></p>
+        </div>
         <div class="gfx">
           <span>Graphics</span>
           <button class="qbtn" data-q="low">Low</button>
@@ -120,6 +134,12 @@
           <div class="hrow"><kbd>V</kbd><span>First person / third person</span></div>
           <div class="hrow"><kbd>Tab</kbd><span>Full factory map</span></div>
           <div class="hrow"><kbd>Esc</kbd><span>Pause &mdash; also frees the mouse</span></div>
+          <div class="hrow"><kbd>E</kbd><span>Hold over a downed workmate to pull them back up</span></div>
+          <p class="hint">Everyone with the link plays the same shift. The first person in
+          opens the factory and the rest drop into it &mdash; same map, same seed, same toys
+          walking around. Get caught and you go down instead of out: a workmate has thirty
+          seconds to reach you, and if nobody does you crawl back to the stairwell yourself.
+          Whoever rides the lift up ends the shift for the whole crew.</p>
           <p class="hint">A power node has a red socket and a blue socket, and only charges while
           <b>both</b> hands are latched on at once. Aim with the crosshair and fire one hand at each.
           You cannot move far while pinned to it &mdash; that is the point.</p>
@@ -164,6 +184,7 @@
 
 <script src="vendor/three.min.js"></script>
 <script src="js/core.js"></script>
+<script src="js/net.js"></script>
 <script src="js/roles.js"></script>
 <script src="js/maps.js"></script>
 <script src="js/textures.js"></script>

@@ -300,3 +300,33 @@ body.touch #subtitle{bottom:96px;font-size:12px}
 @media (max-height:520px){
   #tbuttons-top{bottom:auto;top:8px;right:136px}
 }
+
+/* ═══════════ the room: lobby list and in-game party ═══════════ */
+#lobby{background:rgba(9,13,20,.6);border:1px solid var(--line);border-radius:12px;
+  padding:11px 13px;margin:0 0 14px}
+#lobby-line{margin:0 0 9px;font-size:12px;color:var(--dim);line-height:1.45}
+#lobby-note{margin:9px 0 0;font-size:11px}
+#lobby-list{display:flex;flex-direction:column;gap:5px}
+#lobby-list:empty{display:none}
+.pl{display:flex;align-items:center;gap:8px;padding:5px 9px;border-radius:8px;
+  background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.05)}
+.pl b{font-size:12.5px;font-weight:600;color:#dfe7f5;
+  max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pl span{font-size:10.5px;color:var(--dim);margin-left:auto;letter-spacing:.04em}
+.pl i{font-style:normal;font-size:9px;letter-spacing:.14em;color:#0b0e14;
+  background:var(--gold);border-radius:4px;padding:2px 5px}
+.pl.me{border-color:rgba(255,201,77,.35);background:rgba(255,201,77,.07)}
+.pl.me b{color:var(--gold)}
+.pl.down{opacity:.6}
+.pl.down span{color:#e6404f}
+
+#party{position:absolute;top:56px;left:12px;width:186px;padding:8px 9px;
+  border-radius:10px;background:rgba(6,9,14,.68);border:1px solid var(--line);
+  backdrop-filter:blur(6px);display:flex;flex-direction:column;gap:4px}
+.party-h{font-size:8.5px;letter-spacing:.2em;color:var(--dim);margin-bottom:2px}
+#party .pl{padding:3px 6px;gap:6px;background:none;border:none}
+#party .pl b{font-size:11.5px;max-width:96px}
+#party .pl span{font-size:9.5px}
+body.touch #party{top:auto;bottom:132px;left:8px;width:150px;font-size:10px}
+@media (max-height:520px){#party{display:none}}
+.pl.more{justify-content:center;font-size:10.5px;color:var(--dim);letter-spacing:.05em}

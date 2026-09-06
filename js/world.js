@@ -55,9 +55,10 @@ PP.World = {
     this.W = map.W; this.H = map.H;
     var W = this.W, H = this.H;
     this.grid = new Uint8Array(W * H);          // starts as VOID
-    this.rooms = []; this.props = []; this.detail = []; this.lamps = [];
+    this.rooms = []; this.props = []; this.detail = []; this.lamps = []; this._nextId = 0;
     this.halls = []; this.ventLines = (map.vents || []).slice();
     var rnd = PP.rng(seed || 1337);
+    this.seed = seed || 1337;
 
     // ── carve rooms (floor + one-tile wall ring) ──
     for (i = 0; i < map.rooms.length; i++) {
@@ -207,12 +208,17 @@ PP.World = {
     if (r) return r.name;
     return this.isVent(x, y) ? 'Air Duct' : 'Corridor';
   },
-  /** a random walkable point inside a room, clear of props */
-  spotIn: function (r, pad) {
+  /**
+   * A free tile inside a room, clear of props. Pass the world's seeded RNG and the answer is
+   * the same on every machine — which is what lets two players who built the
+   * same seed stand next to the same node.
+   */
+  spotIn: function (r, pad, rnd) {
     pad = pad || 1;
+    rnd = rnd || Math.random;
     for (var n = 0; n < 60; n++) {
-      var tx = PP.U.randInt(r.x + pad, r.x + r.w - 1 - pad),
-          ty = PP.U.randInt(r.y + pad, r.y + r.h - 1 - pad);
+      var tx = r.x + pad + Math.floor(rnd() * Math.max(1, r.w - 1 - pad * 2)),
+          ty = r.y + pad + Math.floor(rnd() * Math.max(1, r.h - 1 - pad * 2));
       if (this.solid(tx, ty)) continue;
       var px = tx * PP.TILE + PP.TILE / 2, py = ty * PP.TILE + PP.TILE / 2;
       if (this.propNear(px, py, 26)) continue;
@@ -223,7 +229,12 @@ PP.World = {
   randomRoom: function () { return PP.U.pick(this.rooms); },
 
   /* ── props ────────────────────────────────────────────── */
-  addProp: function (p) { p.id = this.props.length; this.props.push(p); return p; },
+  addProp: function (p) { p.id = this._nextId++; this.props.push(p); return p; },
+  /** By id, not by index — decoys come and go and would shift the array. */
+  propById: function (id) {
+    for (var i = 0; i < this.props.length; i++) if (this.props[i].id === id) return this.props[i];
+    return null;
+  },
   propNear: function (x, y, rad) {
     for (var i = 0; i < this.props.length; i++) {
       var p = this.props[i];
@@ -235,7 +246,7 @@ PP.World = {
   buildProps: function (rnd) {
     var self = this;
     function put(kind, room, extra) {
-      var s = self.spotIn(room, 1);
+      var s = self.spotIn(room, 1, rnd);
       return self.addProp(Object.assign({ kind: kind, x: s.x, y: s.y, room: room.id, rad: 16 },
                                         extra || {}));
     }
@@ -257,7 +268,7 @@ PP.World = {
         put(d.clutter, room, { rad: 20, block: true, seed: rnd() });
       }
       for (var t = 0; t < (d.toys || 0); t++) {
-        var sp = self.spotIn(room, 1);
+        var sp = self.spotIn(room, 1, rnd);
         self.addProp({ kind: 'toy', x: sp.x, y: sp.y, rad: 10,
                        hue: Math.floor(rnd() * 360), seed: rnd() });
       }

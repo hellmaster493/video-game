@@ -6,7 +6,8 @@
 
 PP.Game = {
   running: false, paused: false, over: false,
-  mode: 'roam', player: null, npcs: [], monsters: [],
+  mode: 'roam', asMonster: false, sim: true, npcWork: false,
+  player: null, npcs: [], monsters: [],
   clock: 0, shift: 1,
   power: true,
   flares: [], noises: [], seen: {},
@@ -27,21 +28,26 @@ PP.Game = {
     this.npcs = []; this.monsters = [];
     this.shift = (S.shifts || 0) + 1;
 
-    PP.World.build(12345 + this.shift * 7, opts.map);
+    this.asMonster = !!opts.asMonster;
+    this.sim = !PP.Net.online || PP.Net.isHost;   // do I run the AI, or watch it?
+    this.npcWork = this.asMonster;
+    var crowd = PP.Net.online ? Math.max(0, PP.Net.peerCount() - 1) : 0;
+
+    PP.World.build(opts.seed != null ? opts.seed : 12345 + this.shift * 7, opts.map);
     this.addSockets();
 
     var spawn = PP.World.tagged('spawn');
     var role = PP.getRole(opts.role);
 
-    if (this.mode === 'monster') {
+    if (this.asMonster) {
       var mdef = PP.getMonster(opts.monster || 'huggy');
       var vh = PP.World.tagged('vent'), vs = PP.World.spotIn(vh, 1);
       this.player = new MonsterPlayer(vs.x, vs.y, mdef, S.name || 'It');
       this.player.grabLen = 0;
       var mi = this.player.abilityInfo();
       this.player.ability = { cd: 0, max: mi.cd, ready: true };
-      this.power = true;
-      this.spawnStaff(6);
+      this.power = this.mode !== 'night';
+      this.spawnStaff(this.sim ? Math.max(1, 6 - crowd) : 0);
     } else {
       var s = PP.World.spotIn(spawn, 2);
       this.player = new Player(s.x, s.y, role, S.name || 'New Hire');
@@ -52,18 +58,20 @@ PP.Game = {
       this.player.saves = 1;
       if (this.mode === 'night') {
         this.power = false;
-        this.spawnStaff(3);
-        this.spawnMonster(PP.getMonster(opts.hunter || 'huggy'), PP.World.tagged('den').id);
+        this.spawnStaff(this.sim ? Math.max(1, 3 - crowd) : 0);
+        if (this.sim) {
+          this.spawnMonster(PP.getMonster(opts.hunter || 'huggy'), PP.World.tagged('den').id);
+        }
       } else {
         this.power = true;
         this.player.torch = false;
-        this.spawnStaff(7);
+        this.spawnStaff(this.sim ? Math.max(2, 7 - crowd) : 0);
       }
     }
 
     PP.Scene.build(this);
     PP.Scene.setMood(this);
-    PP.Scene.thirdPerson = (this.mode === 'monster');
+    PP.Scene.thirdPerson = (this.asMonster);
     PP.Audio.unlock();
     this.updateObjective();
   },
@@ -88,9 +96,10 @@ PP.Game = {
       var r = PP.World.randomRoom();
       if (r.tags.indexOf('exit') >= 0) r = PP.World.tagged('spawn');
       var s = PP.World.spotIn(r, 1);
-      var look = PP.ROLES[i % PP.ROLES.length].look;
-      this.npcs.push(new Npc(s.x, s.y, PP.NPC_NAMES[(i * 3 + 1) % PP.NPC_NAMES.length],
-                             Object.assign({}, look)));
+      var li = i % PP.ROLES.length, ni = (i * 3 + 1) % PP.NPC_NAMES.length;
+      var npc = new Npc(s.x, s.y, PP.NPC_NAMES[ni], Object.assign({}, PP.ROLES[li].look));
+      npc.lookIdx = li; npc.nameIdx = ni;
+      this.npcs.push(npc);
     }
   },
 
@@ -134,6 +143,9 @@ PP.Game = {
     }
     this.tickTimedProps(dt);
 
+    this.sim = !PP.Net.online || PP.Net.isHost;      // host may change under us
+    if (this.sim) this.npcWork = this.asMonster || PP.Net.anyMonsterPlayer();
+
     this.player.update(dt, this);
     for (var n = 0; n < this.npcs.length; n++) this.npcs[n].update(dt, this);
     for (var m = 0; m < this.monsters.length; m++) this.monsters[m].update(dt, this);
@@ -149,7 +161,7 @@ PP.Game = {
       PP.UI.toast('Entered ' + room.name);
     }
 
-    if (In.hit('f') && this.mode !== 'monster') { this.player.torch = !this.player.torch; PP.Audio.ui(); }
+    if (In.hit('f') && !this.asMonster) { this.player.torch = !this.player.torch; PP.Audio.ui(); }
     if (In.hit('v')) { PP.Scene.thirdPerson = !PP.Scene.thirdPerson; PP.Audio.ui(); }
     if (In.hit('q') && this.player.useAbility && !this.player.useAbility(this)) PP.Audio.bad();
   },
@@ -161,7 +173,7 @@ PP.Game = {
       var pr = props[d];
       if (pr.kind !== 'decoy' && pr.kind !== 'gas') continue;
       pr.life -= dt;
-      if (pr.kind === 'gas' && this.mode !== 'monster'
+      if (pr.kind === 'gas' && !this.asMonster
           && PP.U.dist(pl.x, pl.y, pr.x, pr.y) < 46) {
         pl.gassed = 1.2;
         pl.fear = Math.min(1, pl.fear + dt * 0.35);
@@ -175,7 +187,7 @@ PP.Game = {
   },
 
   tickNodes: function (dt) {
-    if (this.mode === 'monster') return;
+    if (this.asMonster) return;
     var props = PP.World.props;
     for (var i = 0; i < props.length; i++) {
       var p = props[i];
@@ -185,7 +197,7 @@ PP.Game = {
         var rate = 0.42 * (this.player.role && this.player.role.id === 'mechanic' ? 1.7 : 1);
         p.charge = Math.min(1, p.charge + dt * rate);
         if (Math.random() < dt * 8) PP.Audio.tone(300 + p.charge * 500, 0.05, 'square', 0.04);
-        if (p.charge >= 1) { p.done = true; this.onNodeDone(p, this.player); }
+        if (p.charge >= 1) { p.done = true; PP.Net.nodeDone(p); this.onNodeDone(p, this.player); }
       } else if (p.charge > 0 && p.charge < 1) {
         p.charge = Math.max(0, p.charge - dt * 0.18);
       }
@@ -196,8 +208,13 @@ PP.Game = {
   tickInteraction: function (dt) {
     var In = PP.Input, U = PP.U, pl = this.player;
     this.promptProp = null;
+    if (pl.downed) {
+      PP.UI.prompt('Down — someone has to pull you up  (' + Math.ceil(pl.downT) + 's)');
+      return;
+    }
     if (pl.hiding) { PP.UI.prompt('Leave the locker'); return; }
-    if (this.mode === 'monster') { PP.UI.prompt(null); return; }
+    if (this.asMonster) { PP.UI.prompt(null); return; }
+    if (this.tickRevive(dt)) return;
 
     // only things roughly in front of you count
     var facing = function (p) {
@@ -235,7 +252,7 @@ PP.Game = {
         if (In.down('e') || In.touch.interact) {
           best.progress += dt * 0.4 * (pl.role ? pl.role.taskRate : 1);
           this.makeNoise(best.x, best.y, 120, pl);
-          if (best.progress >= 1) { best.done = true; this.onTaskDone(best); }
+          if (best.progress >= 1) { best.done = true; PP.Net.taskDone(best); this.onTaskDone(best); }
         } else if (best.progress > 0) {
           best.progress = Math.max(0, best.progress - dt * 0.25);
         }
@@ -252,13 +269,81 @@ PP.Game = {
       case 'lift':
         if (best.armed) {
           PP.UI.prompt('Ride the lift out');
-          if (In.hit('e') || In.touch.interact) this.finish(true, 'You made it to the surface.');
+          if (In.hit('e') || In.touch.interact) {
+            if (PP.Net.live()) {
+              PP.Net.endRound(true, (pl.name || 'Someone') +
+                ' got the lift up. Everybody out.');
+            } else this.finish(true, 'You made it to the surface.');
+          }
         } else PP.UI.prompt(null);
         break;
       case 'node':
         PP.UI.prompt(best.done ? null : 'Red hand → red socket, blue hand → blue socket');
         break;
     }
+  },
+
+  /**
+   * Stand over someone on the floor and hold E. Two and a half seconds and
+   * they are back on their feet — which is the whole reason to stay together.
+   */
+  tickRevive: function (dt) {
+    var In = PP.Input, pl = this.player;
+    var l = PP.Net.list(), best = null, bd = 78;
+    for (var i = 0; i < l.length; i++) {
+      var rp = l[i];
+      if (!rp.downed || rp.isMonster) continue;
+      var d = PP.U.dist(pl.x, pl.y, rp.x, rp.y);
+      if (d < bd) { bd = d; best = rp; }
+    }
+    if (!best) { pl.reviveT = 0; return false; }
+    var held = In.down('e') || In.touch.interact;
+    if (held) {
+      pl.reviveT += dt;
+      if (pl.reviveT >= 2.5) {
+        pl.reviveT = 0;
+        PP.Net.revive(best, best.downId);
+        best.downed = false; best.caught = false;
+        pl.say('Up you get.', 2.2);
+        PP.Audio.good();
+        PP.UI.toast('You pulled ' + best.name + ' back up.', 'good');
+      }
+    } else pl.reviveT = Math.max(0, pl.reviveT - dt * 1.5);
+    PP.UI.prompt('Hold to pull ' + best.name + ' up  ' +
+                 Math.round(Math.min(1, pl.reviveT / 2.5) * 100) + '%');
+    return true;
+  },
+
+  /* ═════════ down, and back up ═════════ */
+  goDown: function (reason) {
+    var pl = this.player;
+    pl.downed = true; pl.caught = true;
+    pl.downId = (pl.downId || 0) + 1;     // this knockdown, not the last one
+    pl.downT = 30; pl.reviveT = 0;
+    pl.hiding = null; pl.fear = 1; pl.invuln = 0;
+    if (pl.hands) { pl.hands.l.release(); pl.hands.r.release(); }
+    PP.Scene.thirdPerson = true;
+    PP.Net.wentDown();
+    PP.UI.toast(reason, 'bad');
+    PP.UI.toast('Someone can pull you up — or you crawl back in 30 seconds.', 'bad');
+  },
+  reviveMe: function (byName) {
+    var pl = this.player;
+    if (!pl || !pl.downed) return;
+    pl.downed = false; pl.caught = false;
+    pl.downT = 0; pl.invuln = 4; pl.stamina = 0.35; pl.fear = 1;
+    PP.Scene.thirdPerson = this.asMonster;
+    PP.Net.gotUp();
+    PP.Audio.good();
+    PP.UI.toast(byName + ' pulled you back up. Move.', 'good');
+  },
+  /** Nobody came. You drag yourself back to the stairwell on your own. */
+  crawlBack: function () {
+    var pl = this.player, r = PP.World.tagged('spawn');
+    var spot = PP.World.spotIn(r, 2);
+    pl.x = spot.x; pl.y = spot.y;
+    this.reviveMe('You crawled back to the stairwell');
+    pl.invuln = 6;
   },
 
   talkTo: function (npc) {
@@ -277,7 +362,7 @@ PP.Game = {
 
   tickFear: function (dt) {
     var pl = this.player;
-    if (this.mode === 'monster') { PP.Audio.drone(0.25); return; }
+    if (this.asMonster) { PP.Audio.drone(0.25); return; }
     var near = this.nearestMonster(pl.x, pl.y), t = 0;
     if (near) {
       if (near.d < 460) t = PP.U.clamp(1 - (near.d - 90) / 370, 0, 1);
@@ -299,7 +384,12 @@ PP.Game = {
 
   /** Escalate the night as the player makes progress. */
   tickDirector: function (dt) {
-    if (this.mode !== 'night') return;
+    if (this.mode !== 'night' || !this.sim) return;
+    // a room full of player-controlled toys does not need more of them
+    var cap = 3 - Math.min(2, PP.Net.live() ? PP.Net.list().filter(function (r) {
+      return r.isMonster;
+    }).length : 0);
+    if (this.monsters.length >= cap) return;
     var roster = ['mommy', 'bunzo', 'pj', 'catnap', 'boxy', 'huggy', 'claudie'];
     var pick = function (taken) {
       for (var i = 0; i < roster.length; i++) if (taken.indexOf(roster[i]) < 0) return roster[i];
@@ -339,9 +429,11 @@ PP.Game = {
       });
     }
     PP.Audio.good();
-    if (this.mode === 'monster') {
+    if (this.asMonster) {
       PP.UI.toast('A node came back online. Stop them.', 'bad');
-      if (this.nodesDone >= 5) this.finish(false, 'The staff restored power and walked out.');
+      if (this.nodesDone >= 5 && !PP.Net.live()) {
+        this.finish(false, 'The staff restored power and walked out.');
+      }
     } else {
       this.award(40, 'Power node');
       PP.UI.toast('Node ' + this.nodesDone + ' of 5 online.', 'good');
@@ -356,8 +448,18 @@ PP.Game = {
   },
 
   onCatch: function (monster, victim) {
+    if (victim && victim.isRemote) {
+      // Only our own toy reports a grab. An AI monster reaching someone else is
+      // their page's business — it runs the same check against its own player.
+      if (victim.isMonster || monster !== this.player) return;
+      PP.Net.claimCatch(victim);
+      this.caughtCount++;
+      this.award(30, 'Caught ' + victim.name);
+      PP.Audio.roar();
+      return;
+    }
     if (victim === this.player) {
-      if (this.player.invuln > 0 || this.over) return;
+      if (this.player.invuln > 0 || this.over || this.player.downed || this.cine) return;
       this.flash = 1;
       PP.Scene.camShake = 0.6;
       PP.Audio.roar(); PP.Audio.bad();
@@ -452,10 +554,12 @@ PP.Game = {
     this.fade = c.t > fadeAt ? Math.min(1, (c.t - fadeAt) / 0.42) : 0;
     if (c.t >= c.dur) {
       var reason = c.reason;
-      this.cine = null;
+      var shared = PP.Net.live();
+      this.cine = null; this.fade = 0;
       PP.Input.block(false);
       PP.UI.hideHud(false);
-      this.finish(false, reason);
+      if (shared) this.goDown(reason);
+      else this.finish(false, reason);
     }
   },
 
@@ -468,7 +572,8 @@ PP.Game = {
   },
 
   /* ═════════ abilities ═════════ */
-  flare: function (x, y) {
+  flare: function (x, y, mine) {
+    if (mine) PP.Net.flared(x, y);
     this.flares.push({ x: x, y: y, t: 2.4, max: 2.4 });
     PP.Audio.alarm();
     this.monsters.forEach(function (m) {
@@ -537,29 +642,80 @@ PP.Game = {
     if (diff > 0.80) return false;             // outside the frame
     return PP.World.lineClear(pl.x, pl.y, m.x, m.y);
   },
+  /**
+   * Claudie stops for anybody's eyes, not only ours — so a friend watching the
+   * corridor behind you is genuinely holding it still.
+   */
+  anyoneSees: function (m) {
+    if (this.playerSees(m)) return true;
+    var l = PP.Net.list();
+    for (var i = 0; i < l.length; i++) {
+      var p = l[i];
+      if (p.isMonster || p.hiding || p.downed) continue;
+      var d = PP.U.dist(p.x, p.y, m.x, m.y);
+      if (d > 1200) continue;
+      var a = Math.atan2(m.y - p.y, m.x - p.x);
+      var diff = Math.abs(((a - p.face + Math.PI) % 6.2832 + 6.2832) % 6.2832 - Math.PI);
+      if (diff > 0.80) continue;
+      if (PP.World.lineClear(p.x, p.y, m.x, m.y)) return true;
+    }
+    return false;
+  },
 
   nearestMonster: function (x, y) {
-    var best = null, bd = 1e9;
-    for (var i = 0; i < this.monsters.length; i++) {
-      var d = PP.U.dist(x, y, this.monsters[i].x, this.monsters[i].y);
+    var best = null, bd = 1e9, i, d;
+    for (i = 0; i < this.monsters.length; i++) {
+      d = PP.U.dist(x, y, this.monsters[i].x, this.monsters[i].y);
       if (d < bd) { bd = d; best = this.monsters[i]; }
+    }
+    var l = PP.Net.list();
+    for (i = 0; i < l.length; i++) {
+      if (!l[i].isMonster || l[i].downed) continue;
+      d = PP.U.dist(x, y, l[i].x, l[i].y);
+      if (d < bd) { bd = d; best = l[i]; }
     }
     return best ? { m: best, d: bd } : null;
   },
   preyList: function () {
-    return this.mode === 'monster' ? this.npcs : [this.player].concat(this.npcs);
+    var out = this.asMonster ? [] : [this.player];
+    out = out.concat(this.npcs);
+    var l = PP.Net.list();
+    for (var i = 0; i < l.length; i++) if (!l[i].isMonster) out.push(l[i]);
+    return out;
+  },
+  /** Whoever a monster would reach for first — anybody's player, not just ours. */
+  nearestPrey: function (x, y) {
+    var list = this.preyList(), best = null, bd = 1e9;
+    for (var i = 0; i < list.length; i++) {
+      var p = list[i];
+      if (p.caught || p.downed || p instanceof Npc) continue;
+      var d = PP.U.dist2(x, y, p.x, p.y);
+      if (d < bd) { bd = d; best = p; }
+    }
+    if (best) return best;
+    for (var n = 0; n < list.length; n++) if (!list[n].caught) return list[n];
+    return this.player;
   },
   drawList: function () {
-    return [this.player].concat(this.npcs, this.monsters);
+    return [this.player].concat(this.npcs, this.monsters, PP.Net.list());
   },
   showMonsterOnMap: function () {
-    if (this.mode === 'monster') return false;
+    if (this.asMonster) return false;
     return this.player.role && this.player.role.id === 'guard';
   },
 
   /* ═════════ objective text ═════════ */
   updateObjective: function () {
     var txt, pct = 0;
+    if (this.asMonster && PP.Net.live()) {
+      var crew = PP.Net.list().filter(function (r) { return !r.isMonster; });
+      var floored = crew.filter(function (r) { return r.downed; }).length;
+      txt = 'Put the crew on the floor: ' + floored + '/' + crew.length +
+            '  ·  nodes online ' + this.nodesDone + '/5';
+      pct = crew.length ? floored / crew.length : 0;
+      PP.UI.objective(txt, pct);
+      return;
+    }
     if (this.mode === 'roam') {
       var total = 0, done = 0;
       PP.World.props.forEach(function (p) {
@@ -567,10 +723,13 @@ PP.Game = {
       });
       pct = total ? done / total : 0;
       txt = 'Work the floor: ' + done + '/' + total + ' jobs finished';
-      if (total && done >= total && !this.over) {
+      if (total && done >= total && !this.over && (this.sim || !PP.Net.live())) {
         var self = this;
         setTimeout(function () {
-          if (!self.over) self.finish(true, 'Every job on the board, signed off. Go home.');
+          if (self.over) return;
+          var line = 'Every job on the board, signed off. Go home.';
+          if (PP.Net.live()) PP.Net.endRound(true, line);
+          else self.finish(true, line);
         }, 1400);
       }
     } else if (this.mode === 'night') {
@@ -584,6 +743,9 @@ PP.Game = {
             '  ·  nodes online ' + this.nodesDone + '/5';
       pct = this.npcs.length ? (this.npcs.length - left) / this.npcs.length : 0;
     }
+    if (PP.Net.live()) {
+      txt += '  ·  ' + PP.Net.standing() + ' of ' + PP.Net.inShift() + ' still standing';
+    }
     PP.UI.objective(txt, pct);
   },
 
@@ -593,18 +755,21 @@ PP.Game = {
     this.cine = null; this.fade = 0;
     PP.UI.hideHud(false);
     this.over = true; this.running = false;
+    PP.Net.leaveSession();          // stop advertising a factory that just closed
     PP.Audio.stopDrone();
     PP.Input.unlock();
     var S = this.saveData;
     S.shifts = (S.shifts || 0) + 1;
 
     var rows = [['Tokens earned', this.earned], ['Jobs finished', this.tasksDone]];
-    if (this.mode !== 'monster') rows.push(['Power nodes', this.nodesDone + '/5']);
+    if (!this.asMonster) rows.push(['Power nodes', this.nodesDone + '/5']);
+    else if (PP.Net.live()) rows.push(['Caught', this.caughtCount]);
     else rows.push(['Staff caught', this.caughtCount + '/' + this.npcs.length]);
+    if (PP.Net.online && PP.Net.session) rows.push(['Played with', PP.Net.inShift() - 1]);
     rows.push(['Time on shift', PP.U.fmtTime(this.clock)]);
 
     if (win) {
-      var bonus = this.mode === 'night' ? 150 : this.mode === 'monster' ? 200 : 60;
+      var bonus = this.mode === 'night' ? 150 : this.asMonster ? 200 : 60;
       this.earned += bonus; S.tokens += bonus;
       rows.push(['Completion bonus', bonus]);
       PP.Audio.good();

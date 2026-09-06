@@ -15,6 +15,38 @@ thing works offline straight off the filesystem.
 open index.html
 ```
 
+## Everyone with the link plays together
+
+Open the page and you are in a room with everyone else who has it open. Not a
+lobby to fill, not a queue to match into: **one factory, and everybody is in
+it.** Six of you or sixty — there is no cap, nobody is spilled into a second
+copy, and the seventh person to arrive walks into the same shift as the first.
+
+The first person to clock in opens the factory. Everybody after that drops into
+it — same map, same seed, same toys walking the same corridors — whatever they
+had picked on their own menu. You see each other with name tags overhead and
+blue dots on the minimap, hear each other on the chat wheel, and finish the same
+five nodes.
+
+Getting caught stops being the end of your night. The toy takes you, the camera
+does what it always did — and then you are **on the floor** instead of on the
+end card. Anyone can stand over you and hold `E` for two and a half seconds to
+pull you up. If nobody reaches you within thirty seconds you crawl back to the
+stairwell yourself, shaken and briefly untouchable. The shift ends when someone
+rides the lift up, or when every last one of you is down at the same time.
+
+Pick **Monster Shift** and you are the toy in everyone else's night — a
+player-driven hunter loose in the same factory as the AI one. Your grab only
+lands when you swing it, and the person you swing at is the one who decides it
+reached them.
+
+Claudie is worth the trip in company: it freezes while *anyone* is looking at
+it, so a friend watching the corridor behind you is genuinely holding it still.
+
+None of this is a separate mode. If the page has no room to join — a local file,
+a view that cannot connect — the game is exactly the single-player game it was,
+with no error and no dead menu.
+
 ## The three shifts
 
 | Mode | What you do |
@@ -37,6 +69,7 @@ open index.html
 | `V` | First person / third person |
 | `Tab` | Full factory map |
 | `Esc` | Pause — also releases the mouse |
+| `E` (hold) | Pull a downed workmate back up |
 
 Click the view to capture the mouse. If a browser refuses pointer lock, the game
 falls back to drag-to-look rather than becoming unplayable. Touch controls
@@ -74,7 +107,7 @@ in gold, the exit in green, and the vents dashed.
 
 ## The toys
 
-Six of them, all selectable, and the differences are mechanical rather than
+Seven of them, all selectable, and the differences are mechanical rather than
 cosmetic — each one changes how you have to play the floor:
 
 | | Hunts by |
@@ -85,6 +118,7 @@ cosmetic — each one changes how you have to play the floor:
 | **Bunzo Bunny** | **Cymbal Crash.** A crash every few seconds pinpoints you through walls for three seconds, and it hears a sprint two rooms away. |
 | **PJ Pug-a-Pillar** | **Never Gives Up.** Corners badly — you can outmanoeuvre it — but once it has your scent it hunts for the rest of the shift. |
 | **CatNap** | **Red Smoke.** Silent footsteps, so no audio warning at all, and a trail of gas that slows you and eats your stamina. |
+| **Claudie** | **Never While You Watch.** It does not move while it is in your field of view, and it never stops coming when it is not. Silent, faster than you, and it always knows where you are. |
 
 In Night Shift you choose which one is down there with you. In Monster Shift you
 play as it, and the ability is bound to your own `Q` — or, for Boxy Boo, to
@@ -108,6 +142,9 @@ Five staff roles, each with a passive perk and an active ability on `Q`:
 
 The first grab of a shift is a close call: you tear free, lose 50 tokens, and the
 monster is stunned for a moment. There is no second one.
+
+Alone, the second grab is the end of the shift. With anyone else in the room it
+puts you on the floor instead — see *Everyone with the link plays together*.
 
 Lockers hide you completely — a monster cannot see you inside one, but it will
 search where it last saw you go.
@@ -212,6 +249,43 @@ repaired, a third at five, both drawn from the ones you didn't pick.
   post-processing, SSAO, anti-aliasing, shadows, light shafts and pixel ratio,
   so a weak machine still gets a playable frame rate.
 
+## How the room is wired
+
+`js/net.js` sits on the artifact runtime's `room` capability and touches nothing
+else. `await claude.use('room')` resolving `null` is the whole feature switch:
+the rest of the game never asks whether it is online.
+
+- **Presence carries people.** Each page publishes its own absolute state — name,
+  role or toy, position, facing, velocity and a flag word for hiding / downed /
+  sprinting / torch — about thirty times a second. Absolute, never deltas, so a
+  dropped update costs nothing and a late joiner is current the moment they
+  arrive. Remote players are ordinary actors in the draw list: the same rigs,
+  the same walk cycle, plus a name tag drawn into a canvas.
+- **One peer is the host.** Whoever opens the factory claims it; if two open one
+  at the same instant the lower peer id wins and the other migrates into it
+  within a second and a half. The host runs the monster AI and the staff and
+  publishes them in its own presence — a compact string of `id,x,y,face,state`
+  rows — so every client watches the same toy take the same corner. Everyone
+  else's monsters are net-driven puppets that still check, locally and only
+  against their own player, whether one has reached them. If the host leaves,
+  the next peer standing in the factory picks the simulation up mid-stride.
+- **Two topics**, both opened to `interact` so every viewer can send on them:
+  `evt` for the moments presence cannot carry (a node finished, a grab landing,
+  a revive, the end of the shift) and `say` for the chat wheel.
+- **The world is identical everywhere** because prop placement runs off the
+  seeded RNG rather than `Math.random`, so the same seed lays the same node in
+  the same corner of the same room on every machine. That is what lets a
+  finished node travel as one integer.
+- **Nothing off the wire is trusted.** Names and chat lines are stripped of
+  control and invisible characters, capped, and only ever written as text —
+  never as markup. Role and toy ids are matched against our own tables. A grab
+  is decided by the person it lands on, and only believed from someone standing
+  close enough to have thrown it, so no page can drop another from across the
+  map.
+
+Room state is deliberately ephemeral: nothing is written to a database, because
+nothing here needs to outlive the people currently standing in the factory.
+
 ## Tokens
 
 Jobs, nodes and escapes pay Playtime Tokens, saved to `localStorage`. Spend them
@@ -226,7 +300,7 @@ node build.js --fragment   # same, without the <html>/<head>/<body> wrapper
 ```
 
 The bundler substitutes each `<link>` and `<script src>` for the file it points
-at — there is nothing to compile. The result is one ~790 KB page (three.js is
+at — there is nothing to compile. The result is one ~945 KB page (three.js is
 most of it) that runs from `file://` with no flags, which is handy for dropping
 into a WebView or a `.zip` game host.
 
@@ -237,6 +311,7 @@ index.html      markup for the menus and HUD
 css/style.css   all styling
 vendor/         three.js r147 (MIT), vendored so the game works offline
 js/core.js      math, input and pointer lock, save data, WebAudio synth
+js/net.js       the room: shared world, host election, presence, events
 js/roles.js     cast, monsters, modes, emotes, shop items
 js/maps.js      the four playable floors, as data
 js/textures.js  procedural albedo + normal maps, environment map

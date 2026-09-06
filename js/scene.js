@@ -587,7 +587,7 @@ PP.Scene = {
 
   setMood: function (game) {
     var night = game.mode === 'night';
-    var monster = game.mode === 'monster';
+    var monster = game.asMonster;
     this.scene.fog = new THREE.FogExp2(night ? 0x05070c : monster ? 0x0a0810 : 0x161a24,
                                        night ? 0.0034 : monster ? 0.0016 : 0.0009);
     this.scene.background = new THREE.Color(night ? 0x05070c : monster ? 0x0a0810 : 0x161a24);
@@ -643,6 +643,8 @@ PP.Scene = {
       h.rope.forEach(function (r) { self.scene.remove(r); });
     });
     this.hands = {};
+    // remote rigs lived in the group we just threw away
+    if (PP.Net) for (var k in PP.Net.players) PP.Net.players[k].rig = null;
     PP.World.props.forEach(function (p) { p.obj = null; });
     PP.World.lamps.forEach(function (l) { l.idx = null; });
     this.ready = false;
@@ -650,8 +652,8 @@ PP.Scene = {
 
   /* ═════════ actors ═════════ */
   attach: function (ent) {
-    var rig = (ent instanceof Monster) ? PP.Models.monster(ent.def)
-                                       : PP.Models.human(ent.look || (ent.role && ent.role.look) || PP.ROLES[0].look);
+    var rig = ent.def ? PP.Models.monster(ent.def)
+                      : PP.Models.human(ent.look || (ent.role && ent.role.look) || PP.ROLES[0].look);
     ent.rig = rig;
     rig.root.position.set(ent.x, 0, ent.y);
     // contact shadow
@@ -663,8 +665,34 @@ PP.Scene = {
     blob.position.y = 0.6;
     rig.root.add(blob);
     rig.blob = blob;
+    if (ent.isRemote) this.nameTag(ent, rig);
     this.actorGroup.add(rig.root);
     return rig;
+  },
+
+  /** A floating name over somebody else's head. Text only, drawn, never HTML. */
+  nameTag: function (ent, rig) {
+    var cv = document.createElement('canvas');
+    cv.width = 320; cv.height = 72;
+    var c = cv.getContext('2d');
+    c.font = 'bold 38px ui-sans-serif, system-ui, sans-serif';
+    c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.lineJoin = 'round';
+    c.lineWidth = 9; c.strokeStyle = 'rgba(0,0,0,.88)';
+    c.strokeText(ent.name, 160, 38);
+    c.fillStyle = ent.isMonster ? '#ff9c8f' : '#d8e3f4';
+    c.fillText(ent.name, 160, 38);
+    var tex = new THREE.CanvasTexture(cv);
+    tex.encoding = THREE.sRGBEncoding;
+    var sp = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: tex, transparent: true, depthWrite: false, sizeAttenuation: true
+    }));
+    sp.scale.set(58, 13, 1);
+    sp.position.y = rig.height + 13;
+    sp.renderOrder = 12;
+    rig.root.add(sp);
+    rig.tag = sp;
+    rig.tagName = ent.name;
   },
   detach: function (ent) {
     if (ent.rig && ent.rig.root.parent) ent.rig.root.parent.remove(ent.rig.root);
@@ -698,6 +726,17 @@ PP.Scene = {
       e.animPhase = (e.animPhase || 0) + dt * (moving ? sp * 0.10 : 1.6);
       var amp = moving ? Math.min(1, sp / 60) : 0;
       var swing = Math.sin(e.animPhase) * amp * (rig.armSwing || 1);
+
+      if (rig.tag) {
+        if (rig.tagName !== e.name) {           // they renamed themselves
+          rig.root.remove(rig.tag);
+          rig.tag.material.map.dispose(); rig.tag.material.dispose();
+          this.nameTag(e, rig);
+        }
+        var away = PP.U.dist(e.x, e.y, game.player.x, game.player.y);
+        rig.tag.material.opacity = PP.U.clamp(1 - (away - 620) / 380, 0, 1);
+        rig.tag.visible = rig.tag.material.opacity > 0.02 && !e.hiding;
+      }
 
       if (e.caught) {                       // slumped where it fell
         r.rotation.z = PP.U.approach(r.rotation.z, 1.35, 6, dt);
@@ -745,7 +784,7 @@ PP.Scene = {
       }
 
       // monster-specific flourishes
-      if (e instanceof Monster) this.animateMonster(e, rig, dt, amp);
+      if (e.def) this.animateMonster(e, rig, dt, amp);
       // a reaching lunge
       if (e.lunge > 0 && rig.armL) {
         var L = e.lunge / 0.35;
@@ -754,7 +793,7 @@ PP.Scene = {
         if (rig.armR.lower) rig.armR.lower.rotation.x = 0.25 * (1 - L);
       }
       // you do not see your own body from inside your own head
-      var firstPersonSelf = (e === game.player && !this.thirdPerson && game.mode !== 'monster');
+      var firstPersonSelf = (e === game.player && !this.thirdPerson && !game.asMonster);
       rig.root.visible = !e.hiding && !firstPersonSelf;
     }
   },
@@ -784,7 +823,7 @@ PP.Scene = {
   aimHead: function (e, rig, game, dt, amp) {
     var neck = rig.neck, T = performance.now() / 1000;
     var target = game.player;
-    var lock = (e instanceof Monster) && e !== game.player && target &&
+    var lock = !!e.def && e !== game.player && target &&
                (e.state === 'chase' || e.state === 'investigate') &&
                PP.U.dist(e.x, e.y, target.x, target.y) < 700;
     if (lock) {
@@ -984,7 +1023,7 @@ PP.Scene = {
     if (game.cine) { this.cinematicCamera(game, dt); return; }
     var rig = pl.rig;
     var eye = rig ? rig.eyeHeight : 25;
-    var third = this.thirdPerson || game.mode === 'monster';
+    var third = this.thirdPerson || game.asMonster;
 
     var bob = 0, sp = Math.hypot(pl.vx || 0, pl.vy || 0);
     if (sp > 3 && !pl.hiding) {
@@ -999,7 +1038,7 @@ PP.Scene = {
     var pitch = pl.pitch || 0;
 
     if (third) {
-      var dist = (game.mode === 'monster' ? 2.6 : 2.2) * M * 1.6;
+      var dist = (game.asMonster ? 2.6 : 2.2) * M * 1.6;
       var hx = pl.x - Math.cos(pl.face) * dist;
       var hz = pl.y - Math.sin(pl.face) * dist;
       // pull the camera in if a wall is in the way
@@ -1232,7 +1271,7 @@ PP.Scene = {
         view.mesh.quaternion.copy(cam.quaternion);
         view.mesh.rotateX(-0.42);
         view.mesh.rotateZ(side === 'l' ? 0.3 : -0.3);
-        view.mesh.visible = !self.thirdPerson && game.mode !== 'monster';
+        view.mesh.visible = !self.thirdPerson && !game.asMonster;
         view.rope.forEach(function (r) { r.visible = false; });
         return;
       }

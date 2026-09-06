@@ -71,6 +71,7 @@ function Player(x, y, role, name) {
   this.saves = 1;
   this.invuln = 0;
   this.gassed = 0;
+  this.downed = false; this.downT = 0; this.reviveT = 0; this.downId = 0;
 }
 Player.prototype = Object.create(Actor.prototype);
 Player.prototype.constructor = Player;
@@ -112,6 +113,18 @@ Actor.prototype.moveVector = function () {
 Player.prototype.update = function (dt, game) {
   var In = PP.Input, world = PP.World, U = PP.U;
   this.tickSpeech(dt);
+
+  // ── on the floor: you can still look around and shout for help ──
+  if (this.downed) {
+    this.vx = this.vy = 0;
+    this.mouseLook();
+    this.downT -= dt;
+    this.fear = 1;
+    this.stamina = U.clamp(this.stamina + dt * 0.25, 0, 1);
+    if (this.downT <= 0) game.crawlBack();
+    return;
+  }
+
   if (this.invuln > 0) this.invuln -= dt;
   if (this.gassed > 0) this.gassed -= dt;
   if (this.emote) { this.emote.t -= dt; if (this.emote.t <= 0) this.emote = null; }
@@ -164,7 +177,7 @@ Player.prototype.useAbility = function (game) {
   var info = this.abilityInfo(), ok = true;
   switch (this.role.id) {
     case 'worker':   this.stamina = 1; this.say('Second wind!', 2); break;
-    case 'guard':    game.flare(this.x, this.y); this.say('Lights up!', 2); break;
+    case 'guard':    game.flare(this.x, this.y, true); this.say('Lights up!', 2); break;
     case 'mechanic': ok = game.overrideNearestNode(this); break;
     case 'toymaker': game.dropDecoy(this.x, this.y); this.say('Go on, distract them.', 2.5); break;
     default:         game.slipAway(4.5); this.say('*melts into the wall*', 2); break;
@@ -193,7 +206,14 @@ function Npc(x, y, name, look) {
 Npc.prototype = Object.create(Actor.prototype);
 Npc.prototype.constructor = Npc;
 
+/** A puppet of the host's: no thinking, just catching up to where it says. */
+Npc.prototype.netUpdate = function (dt) {
+  this.tickSpeech(dt);
+  PP.Net.glide(this, dt, 13, 10);
+};
+
 Npc.prototype.update = function (dt, game) {
+  if (this.net) { this.netUpdate(dt); return; }
   if (this.caught) { this.tickSpeech(dt); this.vx = this.vy = 0; return; }
   var world = PP.World, U = PP.U;
   this.tickSpeech(dt);
@@ -224,7 +244,7 @@ Npc.prototype.update = function (dt, game) {
     case 'work': {
       this.repairing -= dt;
       this.vx = this.vy = 0;
-      if (this.job && game.mode === 'monster') {
+      if (this.job && game.npcWork) {
         this.job.charge = Math.min(1, this.job.charge + dt * 0.055);
         if (this.job.charge >= 1 && !this.job.done) { this.job.done = true; game.onNodeDone(this.job, this); }
       }
@@ -245,7 +265,7 @@ Npc.prototype.update = function (dt, game) {
 Npc.prototype.repick = function (game) {
   var world = PP.World;
   this.timer = PP.U.rand(4, 9);
-  if (game.mode === 'monster') {
+  if (game.npcWork) {
     var best = null, bd = 1e9;
     for (var i = 0; i < world.props.length; i++) {
       var p = world.props[i];
@@ -306,7 +326,7 @@ Monster.prototype = Object.create(Actor.prototype);
 Monster.prototype.constructor = Monster;
 
 Monster.prototype.canSee = function (t, game) {
-  if (!t || t.hiding || t.caught) return false;
+  if (!t || t.hiding || t.caught || t.downed) return false;
   var d = PP.U.dist(this.x, this.y, t.x, t.y);
   var range = this.def.sense * (game.slip > 0 ? 0.35 : 1);
   if (t.torch && t === game.player) range *= 1.15;
@@ -326,7 +346,39 @@ Monster.prototype.hear = function (nx, ny, radius) {
   return true;
 };
 
+/**
+ * Only the host thinks for a monster. Everyone else watches the same toy walk
+ * the same route, and checks — locally, for themselves only — whether it has
+ * reached them.
+ */
+Monster.prototype.netUpdate = function (dt, game) {
+  this.tickSpeech(dt);
+  if (this.lunge > 0) this.lunge -= dt;
+  if (this.crashT > 0) this.crashT -= dt;
+  PP.Net.glide(this, dt, 14, 11);
+  if (this.state === 'chase' && this.wasState !== 'chase' && this.roarCd <= 0) {
+    PP.Audio.roar(); this.roarCd = 6;
+  }
+  this.roarCd -= dt;
+  this.wasState = this.state;
+  this.stompT -= dt;
+  if (!this.def.silent && this.stompT <= 0 && Math.hypot(this.vx, this.vy) > 8) {
+    var pd = PP.U.dist(this.x, this.y, game.player.x, game.player.y);
+    if (pd < 520) {
+      PP.Audio.noise(0.14, 90 + Math.random() * 60, 0.16 * (1 - pd / 520), 0.8);
+      this.stompT = this.state === 'chase' ? 0.34 : 0.62;
+    }
+  }
+  var pl = game.player;
+  if (!pl || game.asMonster || pl.hiding || pl.downed || pl.invuln > 0 || game.cine) return;
+  if (PP.U.dist(this.x, this.y, pl.x, pl.y) < this.def.reach + 14) {
+    this.lunge = 0.35;
+    game.onCatch(this, pl);
+  }
+};
+
 Monster.prototype.update = function (dt, game) {
+  if (this.net) { this.netUpdate(dt, game); return; }
   var U = PP.U, world = PP.World;
   this.tickSpeech(dt);
   this.repathT -= dt; this.roarCd -= dt;
@@ -363,23 +415,24 @@ Monster.prototype.update = function (dt, game) {
   }
 
   // ── Claudie: it will not move while it is being looked at ──
-  if (this.def.special === 'still' && game.mode !== 'monster') {
-    this.watched = game.playerSees(this);
+  if (this.def.special === 'still' && !game.asMonster) {
+    var mark = game.nearestPrey(this.x, this.y) || game.player;
+    this.watched = game.anyoneSees(this);
     this.state = 'chase';
-    this.target = game.player;
-    this.lastSeen = { x: game.player.x, y: game.player.y };
+    this.target = mark;
+    this.lastSeen = { x: mark.x, y: mark.y };
     this.interest = 9999;
     if (this.watched) {
       this.vx = this.vy = 0;
       this.stillT = (this.stillT || 0) + dt;
       // it does keep turning to face you, slowly, which is worse
-      this.turnTo(dt, game.player.x, game.player.y, 0.5);
+      this.turnTo(dt, mark.x, mark.y, 0.5);
       this.tryCatch(game);
       return;
     }
     if (this.stillT > 0.4) { PP.Audio.ceramic(); }
     this.stillT = 0;
-    this.goto({ x: game.player.x, y: game.player.y }, dt, this.def.speed, true);
+    this.goto({ x: mark.x, y: mark.y }, dt, this.def.speed, true);
     this.tryCatch(game);
     return;
   }
@@ -494,7 +547,7 @@ Monster.prototype.special = function (dt, game, seen, seenD) {
         PP.Audio.crash();
         // the crash tells it exactly where everyone flinched
         var pl = game.player;
-        if (game.mode !== 'monster' && U.dist(this.x, this.y, pl.x, pl.y) < 900 && !pl.hiding) {
+        if (!game.asMonster && U.dist(this.x, this.y, pl.x, pl.y) < 900 && !pl.hiding) {
           this.lastSeen = { x: pl.x, y: pl.y };
           if (this.state !== 'chase') { this.state = 'investigate'; this.target = this.lastSeen; this.timer = 8; this.path = null; }
           PP.Scene.camShake = 0.5;
@@ -520,7 +573,7 @@ Monster.prototype.tryCatch = function (game) {
   var list = game.preyList();
   for (var i = 0; i < list.length; i++) {
     var p = list[i];
-    if (p.caught) continue;
+    if (p.caught || p.downed) continue;
     if (PP.U.dist(this.x, this.y, p.x, p.y) < this.def.reach + 14) {
       this.lunge = 0.35;
       game.onCatch(this, p);
@@ -637,7 +690,7 @@ MonsterPlayer.prototype.grabSweep = function (game, scale) {
   var list = game.preyList();
   for (var i = 0; i < list.length; i++) {
     var p = list[i];
-    if (p.caught) continue;
+    if (p.caught || p.downed) continue;
     if (PP.U.dist(this.x, this.y, p.x, p.y) < this.def.reach * scale + 22
         && PP.World.lineClear(this.x, this.y, p.x, p.y)) {
       game.onCatch(this, p);
@@ -667,4 +720,58 @@ MonsterPlayer.prototype.useAbility = function (game) {
   this.ability.ready = false;
   this.ability.cd = info.cd; this.ability.max = info.cd;
   return true;
+};
+
+/* ═══════════════ Somebody else, over the wire ═══════════════
+   One of these per open document in the room. It never thinks: it
+   only catches up to the absolute state that page keeps publishing.
+   Whether it wears a work jacket or a toy's fur is their choice,
+   and it can change between shifts, so the rig is rebuilt when it
+   does.                                                           */
+function RemotePlayer(peer) {
+  Actor.call(this, 0, 0, 11);
+  this.peer = peer;
+  this.name = 'Someone';
+  this.isRemote = true;
+  this.isMonster = false;
+  this.def = null;                 // set when they are playing a toy
+  this.look = PP.ROLES[0].look;
+  this.role = PP.ROLES[0];
+  this.kindKey = 'h:worker';
+  this.state = 'patrol';
+  this.epoch = 0; this.inShift = false; this.everIn = false; this.have = false;
+  this.nx = 0; this.ny = 0; this.nf = 0;
+  this.hiding = false; this.caught = false; this.downed = false; this.downId = 0;
+  this.torch = false; this.sprinting = false;
+  this.lunge = 0; this.watched = false; this.crashT = 0;
+  this.springPhase = null; this.trail = [];
+  this.stamina = 1; this.fear = 0;
+}
+RemotePlayer.prototype = Object.create(Actor.prototype);
+RemotePlayer.prototype.constructor = RemotePlayer;
+
+/** Swap the body when they change what they are playing. */
+RemotePlayer.prototype.setKind = function (isMonster, id) {
+  var key = (isMonster ? 'm:' : 'h:') + (id || '');
+  if (key === this.kindKey) return;
+  this.kindKey = key;
+  if (isMonster) {
+    this.def = PP.getMonster(id) || PP.getMonster('huggy');
+    this.isMonster = true;
+    this.rad = 15;
+  } else {
+    this.role = PP.getRole(id) || PP.ROLES[0];
+    this.look = this.role.look;
+    this.def = null;
+    this.isMonster = false;
+    this.rad = 11;
+  }
+  if (this.rig) PP.Scene.detach(this);      // scene.js builds the new one next frame
+};
+
+RemotePlayer.prototype.update = function (dt) {
+  this.tickSpeech(dt);
+  if (this.lunge > 0) this.lunge -= dt;
+  if (!this.have) return;
+  PP.Net.glide(this, dt, 13, 11, true);   // velocity comes off the wire
 };
