@@ -1,11 +1,11 @@
-# Claudie Playtime
+# Pennywise Playtime
 
 A first-person 3D roleplay horror game set in an abandoned toy factory. Clock in
 as one of five staff roles, work the floor, chat with your coworkers — and try to
 be on the lift before the toys notice you.
 
-Seven toys are down there. One of them is Claudie, and Claudie does not move
-while you are looking at it.
+Seven of them are down there. One is a clown in a silk suit holding a red
+balloon, and it does not move while you are looking at it.
 
 Runs in any browser with WebGL. No build step, no install, no CDN: three.js is
 vendored and every texture, model and sound is generated at runtime, so the whole
@@ -40,7 +40,7 @@ player-driven hunter loose in the same factory as the AI one. Your grab only
 lands when you swing it, and the person you swing at is the one who decides it
 reached them.
 
-Claudie is worth the trip in company: it freezes while *anyone* is looking at
+Pennywise is worth the trip in company: it freezes while *anyone* is looking at
 it, so a friend watching the corridor behind you is genuinely holding it still.
 
 None of this is a separate mode. If the page has no room to join — a local file,
@@ -107,8 +107,9 @@ in gold, the exit in green, and the vents dashed.
 
 ## The toys
 
-Seven of them, all selectable, and the differences are mechanical rather than
-cosmetic — each one changes how you have to play the floor:
+Seven of them, all selectable — six toys and whatever the clown is — and the
+differences are mechanical rather than cosmetic. Each one changes how you have
+to play the floor:
 
 | | Hunts by |
 |---|---|
@@ -118,7 +119,7 @@ cosmetic — each one changes how you have to play the floor:
 | **Bunzo Bunny** | **Cymbal Crash.** A crash every few seconds pinpoints you through walls for three seconds, and it hears a sprint two rooms away. |
 | **PJ Pug-a-Pillar** | **Never Gives Up.** Corners badly — you can outmanoeuvre it — but once it has your scent it hunts for the rest of the shift. |
 | **CatNap** | **Red Smoke.** Silent footsteps, so no audio warning at all, and a trail of gas that slows you and eats your stamina. |
-| **Claudie** | **Never While You Watch.** It does not move while it is in your field of view, and it never stops coming when it is not. Silent, faster than you, and it always knows where you are. |
+| **Pennywise** | **You Float Too.** It does not move while it is in your field of view, and it never stops coming when it is not. Silent, faster than you, and it always knows where you are. Its lower face is hinged down the middle, and it only ever opens it once. |
 
 In Night Shift you choose which one is down there with you. In Monster Shift you
 play as it, and the ability is bound to your own `Q` — or, for Boxy Boo, to
@@ -295,7 +296,7 @@ your torch, `Dust Sheet` makes monsters lose your trail sooner).
 ## Single-file build
 
 ```bash
-node build.js              # dist/claudie-playtime.html — the whole game in one file
+node build.js              # dist/pennywise-playtime.html — the whole game in one file
 node build.js --fragment   # same, without the <html>/<head>/<body> wrapper
 ```
 

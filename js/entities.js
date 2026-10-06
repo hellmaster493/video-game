@@ -414,7 +414,7 @@ Monster.prototype.update = function (dt, game) {
     return;
   }
 
-  // ── Claudie: it will not move while it is being looked at ──
+  // ── the clown: it will not move while it is being looked at ──
   if (this.def.special === 'still' && !game.asMonster) {
     var mark = game.nearestPrey(this.x, this.y) || game.player;
     this.watched = game.anyoneSees(this);
@@ -430,7 +430,7 @@ Monster.prototype.update = function (dt, game) {
       this.tryCatch(game);
       return;
     }
-    if (this.stillT > 0.4) { PP.Audio.ceramic(); }
+    if (this.stillT > 0.4) { PP.Audio.bell(); }
     this.stillT = 0;
     this.goto({ x: mark.x, y: mark.y }, dt, this.def.speed, true);
     this.tryCatch(game);

@@ -714,262 +714,371 @@ PP.Models = {
   },
 
   /**
-   * Claudie — prototype 1006. A doll's porcelain face on a person's frame,
-   * half of it never upholstered. The mask splits down the middle when it
-   * reaches you, which is the only time you see what is behind it.
+   * Pennywise — the dancing clown. A silk suit two centuries out of fashion, a
+   * face put on in greasepaint with red thread drawn down through the eyes,
+   * and a lower jaw that comes apart down the midline once it is close enough
+   * that it no longer needs the face. It carries a balloon, because it always
+   * does, and there is a bell on each ankle you only hear once it is moving.
    */
-  mon_claudie: function (def) {
+  mon_pennywise: function (def) {
     var M = PP.M, L = def.look, g = new THREE.Group();
     var H = L.h * M;
     var rig = { root: g, height: H };
+    var self = this;
 
-    var cloth = this.plush(new THREE.Color(L.fur).getHex());
-    var clothPale = this.plush(new THREE.Color(L.belly).getHex());
-    var steel = this.plain(0x8d939d, 0.38, 0.82);
-    var wire = this.plain(0x2a2c31, 0.55, 0.35);
-    var maw = this.plain(0x0a0709, 0.95, 0);
-    rig.fur = cloth; rig.furDark = wire; rig.belly = clothPale;
-    rig.lip = this.plain(new THREE.Color(L.lip).getHex(), 0.5, 0);
-
-    if (!this.matCache.porcelain) {
-      var set = PP.Tex.build('porcelain');
-      var pm = new THREE.MeshPhysicalMaterial({
-        map: set.map.clone(), normalMap: set.normalMap.clone(),
-        roughnessMap: set.roughnessMap ? set.roughnessMap.clone() : null,
-        color: 0xffffff, roughness: 0.30, metalness: 0.0,
-        clearcoat: 0.9, clearcoatRoughness: 0.20, envMapIntensity: 0.5
-      });
-      pm.map.needsUpdate = pm.normalMap.needsUpdate = true;
-      this.matCache.porcelain = pm;
-    }
-    var china = this.matCache.porcelain;
+    var silk  = this.plush(new THREE.Color(L.fur).getHex(), 0.42);     // the suit
+    var trim  = this.plush(new THREE.Color(L.belly).getHex(), 0.74);   // ruff and cuffs
+    var pomp  = this.plush(new THREE.Color(L.lip).getHex(), 0.80);
+    var skin  = this.plain(new THREE.Color(L.skin).getHex(), 0.56, 0);
+    var paint = this.plain(new THREE.Color(L.paint).getHex(), 0.34, 0);
+    var hair  = this.plush(new THREE.Color(L.hair).getHex(), 0.90);
+    var boot  = this.plain(0x15151a, 0.46, 0.08);
+    var brass = this.plain(0xc9a24a, 0.30, 0.80);
+    var maw   = this.plain(0x16060a, 0.95, 0);
+    var bone  = this.plain(0xe8e1cc, 0.34, 0);
+    rig.fur = silk; rig.furDark = boot; rig.belly = trim; rig.lip = paint;
 
     var legLen = H * L.leg, torsoH = H * L.torso, torsoR = H * L.tr;
     var armLen = H * L.arm, limbR = H * L.limbR;
 
-    var hips = new THREE.Group(); hips.position.y = legLen; g.add(hips); rig.hips = hips;
+    /** A ring of little fabric points — a ruffle, at any size. */
+    function ruffle(radius, len, n, tilt, mat) {
+      var parts = [];
+      for (var i = 0; i < n; i++) {
+        var a = (i / n) * 6.2832;
+        parts.push({ g: new THREE.ConeGeometry(len * 0.46, len, 5),
+                     m: self.xf(Math.cos(a) * radius, 0, Math.sin(a) * radius,
+                                0, -a, -tilt) });
+      }
+      return self.mesh(self.merge(parts), mat);
+    }
 
-    // a bare steel pelvis, with cloth only where somebody got round to it
-    var pel = [];
-    pel.push({ g: new THREE.TorusGeometry(torsoR * 0.85, torsoR * 0.16, 8, 16),
-               m: this.xf(0, 0, 0, Math.PI / 2, 0, 0) });
-    pel.push({ g: new THREE.CylinderGeometry(torsoR * 0.18, torsoR * 0.18, torsoR * 0.9, 8),
-               m: this.xf(0, torsoR * 0.4, 0) });
-    hips.add(this.mesh(this.merge(pel), steel));
-    var wrap = this.mesh(new THREE.SphereGeometry(torsoR * 0.9, 18, 12), cloth);
-    wrap.scale.set(1, 0.6, 0.85);
-    hips.add(wrap);
+    /* ── hips, and the bell of fabric hanging off them ── */
+    var hips = new THREE.Group(); hips.position.y = legLen; g.add(hips); rig.hips = hips;
+    var pelvis = this.mesh(new THREE.SphereGeometry(torsoR * 0.82, 18, 12), silk);
+    pelvis.scale.set(1, 0.78, 0.86);
+    hips.add(pelvis);
+
+    var skirt = [];
+    skirt.push({ g: new THREE.CylinderGeometry(torsoR * 0.90, torsoR * 1.44, torsoR * 0.78, 22),
+                 m: this.xf(0, torsoR * 0.10, 0, 0, 0, 0, 1, 1, 0.86) });
+    skirt.push({ g: new THREE.SphereGeometry(torsoR * 1.44, 22, 10, 0, 6.2832,
+                                             Math.PI * 0.5, Math.PI * 0.5),
+                 m: this.xf(0, -torsoR * 0.28, 0, 0, 0, 0, 1, 0.46, 0.86) });
+    hips.add(this.mesh(this.merge(skirt), silk));
+    var cord = this.mesh(new THREE.TorusGeometry(torsoR * 0.95, torsoR * 0.055, 8, 22), trim);
+    cord.rotation.x = Math.PI / 2;
+    cord.position.y = torsoR * 0.50;
+    hips.add(cord);
+    var knotPomp = this.mesh(new THREE.SphereGeometry(torsoR * 0.22, 12, 10), pomp);
+    knotPomp.position.set(0, torsoR * 0.50, torsoR * 0.92);
+    hips.add(knotPomp);
 
     var spine = new THREE.Group();
-    spine.position.y = torsoR * 0.3;
-    spine.rotation.x = 0.16;                     // it stoops
+    spine.position.y = torsoR * 0.44;
+    spine.rotation.x = 0.05;
     hips.add(spine); rig.spine = spine;
 
-    // ribcage: bent rod ribs on a steel column, with plush panels over one side
-    var frame = [];
-    frame.push({ g: new THREE.CylinderGeometry(torsoR * 0.16, torsoR * 0.20, torsoH, 8),
-                 m: this.xf(0, torsoH / 2, 0) });
-    for (var rb = 0; rb < 6; rb++) {
-      var ry = torsoH * (0.16 + rb * 0.14);
-      var rr = torsoR * (0.95 - Math.abs(rb - 2) * 0.10);
-      frame.push({ g: new THREE.TorusGeometry(rr, torsoR * 0.055, 6, 18, Math.PI * 1.5),
-                   m: this.xf(0, ry, 0, Math.PI / 2, 0, Math.PI * 0.25, 1, 1, 0.78) });
+    /* ── the doublet: tapering silk under vertical ribbing ── */
+    var body = this.mesh(new THREE.CylinderGeometry(torsoR * 1.06, torsoR * 0.84, torsoH, 24), silk);
+    body.scale.set(1, 1, 0.80);
+    body.position.y = torsoH * 0.5;
+    spine.add(body);
+    var ribs = [];
+    for (var rb = 0; rb < 15; rb++) {
+      var ra = -1.35 + (rb / 14) * 2.70;                 // only across the front
+      ribs.push({ g: new THREE.BoxGeometry(torsoR * 0.055, torsoH * 0.95, torsoR * 0.05),
+                  m: this.xf(Math.sin(ra) * torsoR * 0.99, torsoH * 0.50,
+                             Math.cos(ra) * torsoR * 0.80, 0, -ra, 0) });
     }
-    spine.add(this.mesh(this.merge(frame), steel));
-    // loose wiring hanging out of the chest cavity
-    for (var wI = 0; wI < 5; wI++) {
-      var wg = new THREE.Group();
-      wg.position.set((wI - 2) * torsoR * 0.22, torsoH * 0.30, torsoR * 0.20);
-      var strand = this.tube(torsoR * 0.035, torsoR * 0.02, torsoH * (0.20 + wI * 0.05), wire,
-                             0, -torsoH * (0.10 + wI * 0.025), 0);
-      wg.rotation.z = (wI - 2) * 0.16;
-      wg.add(strand);
-      spine.add(wg);
-    }
-    // the upholstered half
-    var panel = this.mesh(new THREE.SphereGeometry(torsoR * 1.02, 20, 14, 0, Math.PI), cloth);
-    panel.scale.set(1, torsoH / (torsoR * 1.6), 0.82);
-    panel.position.y = torsoH * 0.48;
-    panel.rotation.y = -Math.PI * 0.25;
-    spine.add(panel);
-    var shoulder = this.mesh(new THREE.CylinderGeometry(torsoR * 0.16, torsoR * 0.16,
-                                                        torsoR * 2.4, 10), steel);
-    shoulder.rotation.z = Math.PI / 2;
-    shoulder.position.y = torsoH * 0.94;
-    spine.add(shoulder);
+    spine.add(this.mesh(this.merge(ribs), trim));
 
-    // two pompoms left of what was a row of them; one is hanging by its thread
-    var pompMat = this.plush(new THREE.Color(L.lip).getHex());
-    var pomp1 = this.mesh(new THREE.SphereGeometry(torsoR * 0.30, 14, 10), pompMat);
-    pomp1.position.set(-torsoR * 0.18, torsoH * 0.68, torsoR * 0.72);
-    spine.add(pomp1);
-    var hang = new THREE.Group();
-    hang.position.set(-torsoR * 0.10, torsoH * 0.40, torsoR * 0.70);
-    hang.add(this.tube(torsoR * 0.02, torsoR * 0.02, torsoR * 0.55, wire, 0, -torsoR * 0.28, 0));
-    var pomp2 = this.mesh(new THREE.SphereGeometry(torsoR * 0.24, 14, 10), pompMat);
-    pomp2.position.y = -torsoR * 0.62;
-    hang.add(pomp2);
-    hang.rotation.z = 0.18;
-    spine.add(hang);
-    rig.pompom = hang;
-    // the threads where the others used to be
-    for (var th = 0; th < 3; th++) {
-      spine.add(this.tube(torsoR * 0.012, torsoR * 0.012, torsoR * 0.18, wire,
-                          torsoR * (0.10 + th * 0.13), torsoH * (0.52 - th * 0.10),
-                          torsoR * 0.70));
+    // three pompoms straight down the front, the way they are sewn on
+    for (var pm = 0; pm < 3; pm++) {
+      var pb = this.mesh(new THREE.SphereGeometry(torsoR * 0.25, 14, 11), pomp);
+      pb.position.set(0, torsoH * (0.74 - pm * 0.25), torsoR * 0.78);
+      pb.scale.set(1, 1, 0.84);
+      spine.add(pb);
     }
 
-    // rivets and a stamped plate, because somebody built this in a workshop
-    var hw = [];
-    for (var hv = 0; hv < 10; hv++) {
-      var ha = (hv / 10) * 6.2832;
-      hw.push({ g: new THREE.SphereGeometry(torsoR * 0.055, 8, 6),
-                m: this.xf(Math.cos(ha) * torsoR * 0.88, torsoH * 0.20,
-                           Math.sin(ha) * torsoR * 0.66) });
-    }
-    hw.push({ g: new THREE.BoxGeometry(torsoR * 0.7, torsoR * 0.34, torsoR * 0.06),
-              m: this.xf(torsoR * 0.30, torsoH * 0.80, torsoR * 0.74) });
-    spine.add(this.mesh(this.merge(hw), steel));
-
-    // arms: one finished, one still bare metal
-    var self = this;
-    function arm(bare) {
-      return self.limb3({
-        upper: armLen * 0.50, lower: armLen * 0.44,
-        r0: limbR * (bare ? 0.9 : 1.5), r1: limbR * (bare ? 0.7 : 1.15),
-        r2: limbR * (bare ? 0.6 : 0.95),
-        mat: bare ? steel : cloth, jointMat: bare ? wire : clothPale,
-        end: self.handMesh(limbR * (bare ? 1.1 : 1.9), 4.2, bare ? steel : cloth, 0.16)
+    /* ── arms, inside sleeves that are mostly air ── */
+    function arm() {
+      var a = self.limb3({
+        upper: armLen * 0.48, lower: armLen * 0.44,
+        r0: limbR * 1.15, r1: limbR * 0.95, r2: limbR * 0.88,
+        mat: silk, jointMat: silk,
+        end: self.handMesh(limbR * 1.30, 2.0, skin, 0.26)
       });
+      // the puffed shoulder: a gathered balloon of silk over the upper arm
+      var puff = self.mesh(new THREE.SphereGeometry(limbR * 2.05, 18, 14), silk);
+      puff.position.y = -armLen * 0.15;
+      puff.scale.set(1.05, 1.05, 1.05);
+      a.add(puff);
+      var gather = ruffle(limbR * 1.25, limbR * 1.1, 9, 1.15, trim);
+      gather.position.y = -armLen * 0.34;
+      a.add(gather);
+      // a ruffled cuff where the sleeve ends at the wrist
+      var cuff = ruffle(limbR * 1.15, limbR * 1.5, 10, 1.15, trim);
+      cuff.position.y = limbR * 0.45;
+      a.wrist.add(cuff);
+      return a;
     }
-    rig.armL = arm(false); rig.armR = arm(true);
-    rig.armL.position.set(-torsoR * 1.15, torsoH * 0.94, 0);
-    rig.armR.position.set(torsoR * 1.15, torsoH * 0.94, 0);
+    rig.armL = arm(); rig.armR = arm();
+    rig.armL.position.set(-torsoR * 1.38, torsoH * 0.88, 0);
+    rig.armR.position.set(torsoR * 1.38, torsoH * 0.88, 0);
     rig.armL.rotation.z = 0.10; rig.armR.rotation.z = -0.10;
     spine.add(rig.armL); spine.add(rig.armR);
 
-    // digitigrade legs — the knee is on backwards
+    /* ── the balloon, on a string, in the left hand ── */
+    var bR = H * 0.060, bHex = new THREE.Color(L.balloon).getHex();
+    var rubber = this.plain(bHex, 0.16, 0, bHex, 0.22);
+    var balloon = new THREE.Group();
+    balloon.add(this.tube(H * 0.0030, H * 0.0030, H * 0.22,
+                          this.plain(0xdcd7cc, 0.80, 0), 0, H * 0.11, 0));
+    var bulb = this.mesh(new THREE.SphereGeometry(bR, 20, 16), rubber);
+    bulb.scale.set(1, 1.16, 1);
+    bulb.position.y = H * 0.22 + bR * 0.98;
+    balloon.add(bulb);
+    var knot = this.mesh(new THREE.ConeGeometry(bR * 0.22, bR * 0.30, 8), rubber);
+    knot.position.y = H * 0.22 + bR * 0.05;
+    balloon.add(knot);
+    balloon.position.set(-torsoR * 2.05, torsoH * 0.40, torsoR * 0.60);
+    spine.add(balloon);
+    rig.balloon = balloon;
+
+    /* ── legs: pantaloons, ruffled ankles with a bell, big black boots ── */
     function leg() {
-      return self.limb3({
-        upper: legLen * 0.44, lower: legLen * 0.40,
-        r0: limbR * 1.7, r1: limbR * 1.15, r2: limbR * 0.9,
-        mat: cloth, jointMat: steel,
-        end: self.footMesh(limbR * 1.5, wire)
+      var foot = new THREE.Group();
+      var sole = self.mesh(new THREE.SphereGeometry(limbR * 1.5, 14, 10), boot);
+      sole.scale.set(1.0, 0.70, 1.95);
+      sole.position.set(0, -limbR * 0.44, limbR * 0.74);
+      foot.add(sole);
+      foot.add(self.mesh(new THREE.CylinderGeometry(limbR * 1.22, limbR * 1.34,
+                                                    limbR * 1.1, 12), boot));
+      var lg = self.limb3({
+        upper: legLen * 0.46, lower: legLen * 0.40,
+        r0: limbR * 2.0, r1: limbR * 1.75, r2: limbR * 1.25,
+        mat: silk, jointMat: silk, end: foot
       });
+      var frill = ruffle(limbR * 1.9, limbR * 2.1, 12, 1.10, silk);
+      frill.position.y = limbR * 0.95;
+      lg.wrist.add(frill);
+      var bell = self.mesh(new THREE.SphereGeometry(limbR * 0.34, 10, 8), brass);
+      bell.position.set(limbR * 1.6, limbR * 0.5, 0);
+      lg.wrist.add(bell);
+      return lg;
     }
     rig.legL = leg(); rig.legR = leg();
-    rig.legL.position.set(-torsoR * 0.5, 0, 0);
-    rig.legR.position.set(torsoR * 0.5, 0, 0);
+    rig.legL.position.set(-torsoR * 0.46, 0, 0);
+    rig.legR.position.set(torsoR * 0.46, 0, 0);
     hips.add(rig.legL); hips.add(rig.legR);
-    rig.legBias = { hip: -0.30, knee: 0.85, ankle: -0.55 };
 
-    // neck: exposed vertebrae, too long by half
+    /* ── neck, and the ruff sitting on top of it ── */
     var neck = new THREE.Group();
-    neck.position.y = torsoH * 1.02;
+    neck.position.y = torsoH * 0.98;
     spine.add(neck); rig.neck = neck;
-    var vert = [];
-    for (var v = 0; v < 5; v++) {
-      vert.push({ g: new THREE.TorusGeometry(torsoR * 0.24, torsoR * 0.07, 6, 12),
-                  m: this.xf(0, v * H * 0.020, 0, Math.PI / 2, 0, 0) });
-    }
-    neck.add(this.mesh(this.merge(vert), steel));
+    neck.add(this.mesh(new THREE.CylinderGeometry(torsoR * 0.30, torsoR * 0.36,
+                                                  H * 0.030, 12), skin));
 
     var r = H * L.head;
+    // three tiers of it, each wider and droopier than the last
+    // a soft mass, not a crown of spikes: many small points over a gathered core
+    for (var tier = 0; tier < 4; tier++) {
+      var rad = r * (0.48 + tier * 0.19);
+      var rf = ruffle(rad, r * (0.24 - tier * 0.015), 24 + tier * 6,
+                      0.42 + tier * 0.20, trim);
+      rf.position.y = H * 0.030 + r * (0.52 - tier * 0.125);
+      neck.add(rf);
+      var core = this.mesh(new THREE.TorusGeometry(rad * 0.82, r * 0.235, 10, 26), trim);
+      core.rotation.x = Math.PI / 2;
+      core.position.y = rf.position.y;
+      core.scale.set(1, 0.78, 0.70);
+      neck.add(core);
+    }
+
     var head = new THREE.Group();
-    head.position.y = H * 0.115;
-    head.rotation.z = 0.11;                      // the head never sits straight
+    head.position.y = H * 0.030 + r * 1.28;      // the jaw has to clear the ruff
     neck.add(head); rig.head = head;
     rig.headR = r;
 
-    // the mask, split down the midline into two hinged halves
+    var SX = 0.94, SY = 1.18;                  // the skull is tall and narrow
+
+    /** Where the skull's surface is, for anything painted or stuck onto it. */
+    function surf(x, y) {
+      var k = 1 - (y * y) / (r * SY * r * SY) - (x * x) / (r * SX * r * SX);
+      return k > 0.03 ? Math.sqrt(k) * r * SX : 0;
+    }
+    /**
+     * Lay a painted line along a path across the face, one short segment at a
+     * time, each one sitting on the curve rather than floating in front of it.
+     * `path(t)` returns [x, y] for t from 0 to 1.
+     */
+    function line(parts, path, n, w, lift) {
+      var prev = null;
+      for (var i = 0; i <= n; i++) {
+        var p = path(i / n);
+        if (prev) {
+          var dx = p[0] - prev[0], dy = p[1] - prev[1];
+          var mx = (p[0] + prev[0]) / 2, my = (p[1] + prev[1]) / 2;
+          var z = surf(mx, my);
+          if (z) {
+            parts.push({ g: new THREE.BoxGeometry(w, Math.hypot(dx, dy) * 1.45, r * 0.05),
+                         m: self.xf(mx, my, z + (lift || r * 0.012), 0, 0,
+                                    Math.atan2(-dx, dy)) });
+          }
+        }
+        prev = p;
+      }
+    }
+
+    /* ── the cranium: a forehead far too tall, open below the mouth line ── */
+    var dome = this.mesh(new THREE.SphereGeometry(r, 28, 24, 0, 6.2832, 0, Math.PI * 0.54), skin);
+    dome.scale.set(SX, SY, SX);
+    head.add(dome);
+
+    /**
+     * Point a piece at a direction instead of guessing Euler angles — hair
+     * growing out of a skull is radial, and radial is painful in XYZ.
+     */
+    function aimed(geo, px, py, pz, dx, dy, dz, push) {
+      var d = new THREE.Vector3(dx, dy, dz).normalize();
+      var ax = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), d);
+      if (ax.lengthSq() < 1e-6) ax.set(1, 0, 0);
+      ax.normalize();
+      var az = new THREE.Vector3().crossVectors(ax, d).normalize();
+      var m = new THREE.Matrix4().makeBasis(ax, d, az);
+      m.setPosition(px + d.x * push, py + d.y * push, pz + d.z * push);
+      return { g: geo, m: m };
+    }
+
+    // hair: it only grows at the sides and the back, and it is going upward
+    var tufts = [];
+    [-1, 1].forEach(function (s) {
+      for (var row = 0; row < 3; row++) {
+        for (var k = 0; k < 7; k++) {
+          var a = 0.68 + (k / 6) * 1.52;             // temple round to the back
+          var rad = r * (0.80 - row * 0.09);
+          var px = s * Math.sin(a) * rad * SX;
+          var pz = Math.cos(a) * rad * SX;
+          var py = r * (0.06 + row * 0.30);
+          var len = r * (1.02 - row * 0.15 - Math.abs(k - 3) * 0.045);
+          tufts.push(aimed(new THREE.ConeGeometry(r * (0.155 - row * 0.015), len, 6),
+                           px, py, pz,
+                           px * 0.95, r * (1.15 - row * 0.12), pz * 0.95, len * 0.44));
+        }
+      }
+    });
+    head.add(this.mesh(this.merge(tufts), hair));
+
+    /* ── the eyes, which do not blink and do not quite agree ── */
+    var lidMat = this.plain(0xcfd0cb, 0.60, 0);
+    rig.eyes = this.eyes(r * 0.185, L.eye, r * 0.36, r * 0.80, r * 0.30, true, lidMat);
+    rig.eyes.children.forEach(function (e) {        // this face does not blink
+      if (e.lid) e.lid.rotation.x = -1.18;
+      if (e.lowLid) e.lowLid.rotation.x = 0.62;
+    });
+    head.add(rig.eyes);
+
+    // the deadlights: nothing at all until the moment it stops pretending
+    rig.deadlights = new THREE.Group();
+    var glowMat = new THREE.MeshBasicMaterial({
+      color: 0xfff2cc, transparent: true, opacity: 0.85,
+      blending: THREE.AdditiveBlending, depthWrite: false
+    });
+    for (var dl = -1; dl <= 1; dl += 2) {
+      var sp = this.mesh(new THREE.SphereGeometry(r * 0.21, 14, 10), glowMat);
+      sp.position.set(dl * r * 0.36, r * 0.30, r * 0.84);
+      sp.castShadow = false; sp.receiveShadow = false;
+      rig.deadlights.add(sp);
+    }
+    rig.deadlights.scale.setScalar(0.001);
+    rig.deadlights.visible = false;
+    head.add(rig.deadlights);
+
+    /* ── the three red threads: down the brow, then through each eye ── */
+    var marks = [];
+    line(marks, function (t) { return [0, r * (1.08 - t * 0.44)]; }, 7, r * 0.065);
+    [-1, 1].forEach(function (s) {
+      line(marks, function (t) {
+        return [s * r * 0.36 * t, r * (0.64 - t * 0.32)];       // out to the eye
+      }, 6, r * 0.060);
+      line(marks, function (t) {
+        return [s * r * (0.36 + t * 0.07), r * (0.30 - t * 0.33)];
+      }, 5, r * 0.060);
+    });
+    head.add(this.mesh(this.merge(marks), paint));
+
+    var nose = this.mesh(new THREE.SphereGeometry(r * 0.17, 14, 11), skin);
+    nose.position.set(0, r * 0.08, surf(0, r * 0.08) - r * 0.04);
+    nose.scale.set(0.85, 1.15, 1.05);
+    head.add(nose);
+
+    /* ── the lower face, hinged down the midline ───────────────────────────
+       THREE's phiStart runs round Y, so the +X half of a sphere is the sweep
+       that starts at +PI/2 — split it anywhere else and the face opens
+       front-to-back instead of left-to-right.                              */
     rig.jawL = new THREE.Group(); rig.jawR = new THREE.Group();
     head.add(rig.jawL); head.add(rig.jawR);
-    var paint = this.plain(0x1c1a20, 0.55, 0);
-    var nose = this.plain(0x8e2f28, 0.42, 0);
-    [[rig.jawL, 0], [rig.jawR, Math.PI]].forEach(function (half) {
-      var grp = half[0], phi = half[1], side = phi === 0 ? 1 : -1;
+    [[rig.jawL, Math.PI * 0.5, 1], [rig.jawR, -Math.PI * 0.5, -1]].forEach(function (half) {
+      var grp = half[0], phi = half[1], side = half[2];
 
-      // the shell is a face, not a ball: brow, cheek and a little chin
+      // cheek, mouth and chin: half a face, cut straight down the middle
       var shell = [];
-      shell.push({ g: new THREE.SphereGeometry(r, 26, 22, phi, Math.PI),
-                   m: self.xf(0, 0, 0, 0, 0, 0, 1, 1.18, 0.94) });
-      shell.push({ g: new THREE.SphereGeometry(r * 0.42, 14, 10, phi, Math.PI),
-                   m: self.xf(side * r * 0.36, r * 0.44, r * 0.52, 0, 0, 0, 1.3, 0.5, 0.6) });
+      shell.push({ g: new THREE.SphereGeometry(r, 24, 18, phi, Math.PI,
+                                               Math.PI * 0.54, Math.PI * 0.46),
+                   m: self.xf(0, 0, 0, 0, 0, 0, SX, SY, SX) });
+      shell.push({ g: new THREE.SphereGeometry(r * 0.36, 14, 10, phi, Math.PI),
+                   m: self.xf(side * r * 0.40, -r * 0.14, r * 0.46, 0, 0, 0, 1.0, 0.9, 0.85) });
       shell.push({ g: new THREE.SphereGeometry(r * 0.38, 14, 10, phi, Math.PI),
-                   m: self.xf(side * r * 0.44, -r * 0.06, r * 0.50, 0, 0, 0, 1.0, 0.9, 0.7) });
-      shell.push({ g: new THREE.SphereGeometry(r * 0.34, 14, 10, phi, Math.PI),
-                   m: self.xf(side * r * 0.10, -r * 0.72, r * 0.34, 0, 0, 0, 1.2, 0.8, 0.9) });
-      grp.add(self.mesh(self.merge(shell), china));
+                   m: self.xf(side * r * 0.13, -r * 0.70, r * 0.26, 0, 0, 0, 1.25, 1.1, 1.15) });
+      grp.add(self.mesh(self.merge(shell), skin));
 
-      // a hollow socket where an eye should be, with something small and lit far back
-      var socket = self.mesh(new THREE.SphereGeometry(r * 0.30, 16, 12), maw);
-      socket.position.set(side * r * 0.40, r * 0.20, r * 0.74);
-      socket.scale.set(1.15, 1.35, 0.7);
-      grp.add(socket);
-      var spark = self.mesh(new THREE.SphereGeometry(r * 0.055, 10, 8),
-                            self.plain(0x2a0806, 0.4, 0,
-                                       new THREE.Color(L.eye).getHex(), 1.6));
-      spark.position.set(side * r * 0.40, r * 0.20, r * 0.62);
-      grp.add(spark);
+      var red = [];
+      // the thread carries on down the cheek, so it splits with the face
+      line(red, function (t) {
+        return [side * r * (0.43 + t * 0.05), -r * (0.03 + t * 0.66)];
+      }, 7, r * 0.060);
+      // half the grin: low in the middle, flicked up hard past the cheekbone
+      line(red, function (t) {
+        return [side * r * 0.50 * t, -r * (0.42 - t * t * 0.26)];
+      }, 9, r * 0.075, r * 0.022);
+      // and the flick keeps going, up toward the eye
+      line(red, function (t) {
+        return [side * r * (0.54 + t * 0.03), -r * (0.14 - t * 0.26)];
+      }, 4, r * 0.055);
+      grp.add(self.mesh(self.merge(red), paint));
 
-      // pierrot marks: a painted diamond above and a teardrop below
-      var dia = self.mesh(new THREE.OctahedronGeometry(r * 0.13), paint);
-      dia.position.set(side * r * 0.40, r * 0.50, r * 0.72);
-      dia.scale.set(0.7, 1.5, 0.22);
-      grp.add(dia);
-      var tear = self.mesh(new THREE.ConeGeometry(r * 0.075, r * 0.26, 10), paint);
-      tear.position.set(side * r * 0.38, -r * 0.16, r * 0.76);
-      tear.rotation.x = Math.PI;
-      tear.scale.set(1, 1, 0.25);
-      grp.add(tear);
-
-      // half a nose, so it splits with the rest of the face
-      var nb = self.mesh(new THREE.SphereGeometry(r * 0.15, 14, 10, phi, Math.PI), nose);
-      nb.position.set(0, r * 0.02, r * 0.84);
-      grp.add(nb);
-
-      // half of a painted smile, chipped, turning up at the corner
-      var lipArc = self.mesh(new THREE.TorusGeometry(r * 0.54, r * 0.05, 8, 20, Math.PI * 0.55),
-                             rig.lip);
-      lipArc.position.set(0, -r * 0.20, r * 0.62);
-      lipArc.rotation.z = side > 0 ? Math.PI * 0.96 : Math.PI * 0.49;
-      lipArc.scale.set(1, 0.58, 0.5);
-      grp.add(lipArc);
+      // the famous overbite, sitting proud of the lip
+      var buck = self.mesh(new THREE.BoxGeometry(r * 0.17, r * 0.30, r * 0.09), bone);
+      buck.position.set(side * r * 0.095, -r * 0.40, surf(r * 0.10, -r * 0.40) - r * 0.02);
+      buck.rotation.x = 0.12;
+      grp.add(buck);
     });
 
-    // a ruff that has lost most of its points
-    var ruff = new THREE.Group();
-    ruff.position.y = -r * 0.05;
-    head.add(ruff);
-    for (var rp = 0; rp < 11; rp++) {
-      if (rp === 3 || rp === 7) continue;                 // torn away
-      var ra = (rp / 11) * 6.2832;
-      var pt = this.mesh(new THREE.ConeGeometry(r * 0.16, r * 0.46, 5),
-                         rp % 2 ? clothPale : cloth,
-                         Math.cos(ra) * r * 0.62, -r * 0.55, Math.sin(ra) * r * 0.62);
-      pt.rotation.z = -Math.cos(ra) * 1.25;
-      pt.rotation.x = Math.sin(ra) * 1.25 + 0.5;
-      ruff.add(pt);
-    }
-
-    // what the mask is covering
-    var inner = this.mesh(new THREE.SphereGeometry(r * 0.82, 18, 14), maw);
-    inner.scale.set(0.9, 1.1, 0.9);
+    /* ── and what the face is covering ── */
+    var inner = this.mesh(new THREE.SphereGeometry(r * 0.82, 20, 16), maw);
+    inner.scale.set(0.92, 1.12, 0.92);
+    inner.position.y = -r * 0.16;
     head.add(inner);
     var fangs = [];
-    for (var t = 0; t < 18; t++) {
-      var fa = (t / 18) * Math.PI * 2;
-      fangs.push({ g: new THREE.ConeGeometry(r * 0.055, r * 0.42, 5),
-                   m: this.xf(Math.cos(fa) * r * 0.52, Math.sin(fa) * r * 0.60, r * 0.30,
-                              Math.PI / 2 + 0.5, 0, 0) });
+    for (var ring = 0; ring < 3; ring++) {
+      var rr = r * (0.66 - ring * 0.15), n2 = 18 - ring * 4;
+      for (var t2 = 0; t2 < n2; t2++) {
+        var fa = (t2 / n2) * 6.2832;
+        fangs.push({ g: new THREE.ConeGeometry(r * (0.054 - ring * 0.008),
+                                               r * (0.44 - ring * 0.08), 5),
+                     m: this.xf(Math.cos(fa) * rr, -r * 0.16 + Math.sin(fa) * rr * 1.05,
+                                r * (0.34 - ring * 0.16), Math.PI / 2 + 0.42, 0, 0) });
+      }
     }
-    head.add(this.mesh(this.merge(fangs), this.plain(0xd9d2c0, 0.4, 0)));
+    head.add(this.mesh(this.merge(fangs), bone));
 
-    rig.eyeHeight = legLen + torsoH + H * 0.14;
+    rig.eyeHeight = legLen + torsoR * 0.44 + torsoH * 0.98 + H * 0.030 + r * 1.58;
     rig.jointed = true;
-    rig.armSwing = 0.65;
-    rig.idleSway = 2.1;
+    rig.armSwing = 0.80;
+    rig.idleSway = 1.6;
     rig.stutter = true;
+    rig.portraitLift = 0.05;
     return rig;
   },
 

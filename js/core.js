@@ -219,6 +219,15 @@ PP.Save = {
       var raw = localStorage.getItem(this.KEY);
       this.data = raw ? Object.assign(this.defaults(), JSON.parse(raw)) : this.defaults();
     } catch (e) { this.data = this.defaults(); }
+    // the clown took that slot over; an old save still naming the last tenant
+    // would quietly be handed a different toy
+    var d = this.data;
+    if (d.monster === 'claudie') d.monster = 'pennywise';
+    if (d.hunter === 'claudie') d.hunter = 'pennywise';
+    if (d.unlocked && d.unlocked.claudie) {
+      d.unlocked.pennywise = true;
+      delete d.unlocked.claudie;
+    }
     return this.data;
   },
   flush: function () {
@@ -285,12 +294,27 @@ PP.Audio = {
     this.tone(1400, 0.5, 'square', 0.05, 700);
   },
 
-  ceramic: function () {
-    this.tone(2600 + Math.random() * 900, 0.045, 'square', 0.035, 1800);
-    this.noise(0.05, 5200, 0.05, 2.0);
+  /** the little bell on its ankle, heard only in the moment it is moving */
+  bell: function () {
+    var f = 1750 + Math.random() * 520;
+    this.tone(f, 0.20, 'sine', 0.042, f * 0.90);
+    this.tone(f * 1.52, 0.14, 'triangle', 0.020, f * 1.40);
   },
 
-  /** a thin high tone that rises as Claudie gets closer */
+  /** four notes of a laugh that is not a child's, however it starts out */
+  giggle: function () {
+    var s = this;
+    for (var i = 0; i < 4; i++) {
+      (function (k) {
+        setTimeout(function () {
+          var f = 540 * (1 - k * 0.15);
+          s.tone(f, 0.13, 'triangle', 0.075, f * 0.76);
+        }, k * 105);
+      })(i);
+    }
+  },
+
+  /** a thin high tone that rises as the clown gets closer */
   dread: function (level) {
     if (!this.ctx || this.muted) return;
     if (!this._dread) {

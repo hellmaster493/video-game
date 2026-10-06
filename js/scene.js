@@ -888,13 +888,26 @@ PP.Scene = {
         if (lgL) { lgL.rotation.x = Math.sin(T * 8 + q) * 0.5 * amp; lgR.rotation.x = -lgL.rotation.x; }
       }
     }
-    // ── Claudie ──
+    // ── the clown ──
     if (rig.jawL) {
       // the mask opens only as it reaches you
       var open = m.lunge > 0 ? (m.lunge / 0.35)
                : (m.state === 'chase' && !m.watched ? 0.18 : 0);
       rig.jawL.rotation.y = PP.U.approach(rig.jawL.rotation.y, open * 1.25, 16, dt);
       rig.jawR.rotation.y = PP.U.approach(rig.jawR.rotation.y, -open * 1.25, 16, dt);
+    }
+    // the balloon never quite hangs still, and there is no draught down here
+    if (rig.balloon) {
+      rig.balloon.rotation.z = Math.sin(T * 1.3 + m.x * 0.01) * 0.22;
+      rig.balloon.rotation.x = Math.sin(T * 0.9 + m.y * 0.01) * 0.16;
+    }
+    // it only opens them once it has stopped pretending to be a clown
+    if (rig.deadlights) {
+      var dl = m.lunge > 0 ? (m.lunge / 0.35) : 0;
+      var cur = PP.U.approach(rig.deadlights.scale.x, Math.max(0.001, dl), 14, dt);
+      rig.deadlights.scale.setScalar(cur);
+      rig.deadlights.visible = cur > 0.02;
+      rig.deadlights.children[0].material.opacity = 0.85 * Math.min(1, cur * 1.4);
     }
     if (rig.stutter) {
       if (m.watched) {
@@ -1075,7 +1088,7 @@ PP.Scene = {
     this.torchTarget.position.copy(cam.position).addScaledVector(dir, range);
     this.torch.distance = range * 1.35;
     this.torch.intensity = (pl.torch ? 1 : 0) * (game.power ? 0.95 : 1.35);
-    // Claudie does something to the wiring; the closer it is, the worse the torch
+    // the clown does something to the wiring; the closer it is, the worse the torch
     var interference = 0;
     for (var ci = 0; ci < game.monsters.length; ci++) {
       var cm = game.monsters[ci];
@@ -1112,7 +1125,7 @@ PP.Scene = {
 
   /**
    * The grab. For most of them you are yanked in, held up and then the mouth
-   * closes over the lens. Claudie takes you from behind, turns you round, and
+   * closes over the lens. The clown takes you from behind, turns you round, and
    * puts you into the mask.
    */
   cinematicCamera: function (game, dt) {
@@ -1124,7 +1137,7 @@ PP.Scene = {
     var eye = new THREE.Vector3(), look = new THREE.Vector3(), roll = 0, shake = 0;
     var t = c.t;
 
-    if (c.kind === 'claudie') {
+    if (c.kind === 'clown') {
       var pl = game.player;
       if (t < 0.5) {
         // turned round to face it, whether you wanted to be or not

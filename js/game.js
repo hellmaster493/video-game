@@ -371,7 +371,7 @@ PP.Game = {
     }
     if (t > pl.fear) pl.fear = PP.U.approach(pl.fear, t, 3.2, dt);
     PP.Audio.drone(pl.fear);
-    // a thin high tone that only Claudie brings with it
+    // a thin high tone that only the clown brings with it
     var dread = 0;
     for (var i = 0; i < this.monsters.length; i++) {
       var m = this.monsters[i];
@@ -390,7 +390,7 @@ PP.Game = {
       return r.isMonster;
     }).length : 0);
     if (this.monsters.length >= cap) return;
-    var roster = ['mommy', 'bunzo', 'pj', 'catnap', 'boxy', 'huggy', 'claudie'];
+    var roster = ['mommy', 'bunzo', 'pj', 'catnap', 'boxy', 'huggy', 'pennywise'];
     var pick = function (taken) {
       for (var i = 0; i < roster.length; i++) if (taken.indexOf(roster[i]) < 0) return roster[i];
       return 'huggy';
@@ -503,13 +503,13 @@ PP.Game = {
   },
 
   /**
-   * The camera stops being yours. Every monster gets a grab; Claudie gets its
+   * The camera stops being yours. Every monster gets a grab; the clown gets its
    * own, because being taken from behind is the whole point of it.
    */
   beginDeath: function (monster) {
     var pl = this.player;
-    var claudie = monster.def.special === 'still';
-    if (claudie) {
+    var clown = monster.def.special === 'still';
+    if (clown) {
       // it was never in front of you
       var behind = pl.face + Math.PI;
       var bx = pl.x + Math.cos(behind) * 52, by = pl.y + Math.sin(behind) * 52;
@@ -518,17 +518,17 @@ PP.Game = {
         if (!PP.World.blocked(bx, by, monster.rad)) break;
       }
       monster.x = bx; monster.y = by;
-      PP.Audio.ceramic(); PP.Audio.roar();
+      PP.Audio.bell(); PP.Audio.giggle(); PP.Audio.roar();
     }
     monster.face = Math.atan2(pl.y - monster.y, pl.x - monster.x);
     this.cine = {
       m: monster, t: 0,
-      dur: claudie ? 2.7 : 2.1,
-      kind: claudie ? 'claudie' : 'grab',
+      dur: clown ? 2.7 : 2.1,
+      kind: clown ? 'clown' : 'grab',
       yaw0: pl.face, pitch0: pl.pitch,
       px: pl.x, py: pl.y,
-      reason: claudie
-        ? 'You never saw Claudie move. That is how it works.'
+      reason: clown
+        ? 'You never saw it move. That is the whole trick.'
         : monster.def.name + ' caught you in the ' +
           PP.World.roomName(pl.x, pl.y) + '.'
     };
@@ -540,13 +540,16 @@ PP.Game = {
   tickCinematic: function (dt) {
     var c = this.cine, m = c.m;
     c.t += dt;
+    // update() bails out above this, so the hit flash has to be let go of here
+    // or it sits at full red over the whole jumpscare
+    if (this.flash > 0) this.flash = Math.max(0, this.flash - dt * 2.6);
     m.lunge = 0.35;
     m.watched = false;
     m.vx = m.vy = 0;
     m.face = PP.U.angLerp(m.face, Math.atan2(c.py - m.y, c.px - m.x),
                           1 - Math.exp(-8 * dt));
     // it drags you the last little way in
-    if (c.kind !== 'claudie' && c.t < c.dur * 0.5) {
+    if (c.kind !== 'clown' && c.t < c.dur * 0.5) {
       this.player.x = PP.U.approach(this.player.x, m.x, 1.6, dt);
       this.player.y = PP.U.approach(this.player.y, m.y, 1.6, dt);
     }
@@ -629,7 +632,7 @@ PP.Game = {
     }
   },
   /**
-   * Is this thing on screen and unobstructed? Claudie's whole behaviour hangs
+   * Is this thing on screen and unobstructed? The clown's whole behaviour hangs
    * off it — and hiding in a locker means you cannot see it either.
    */
   playerSees: function (m) {
@@ -643,7 +646,7 @@ PP.Game = {
     return PP.World.lineClear(pl.x, pl.y, m.x, m.y);
   },
   /**
-   * Claudie stops for anybody's eyes, not only ours — so a friend watching the
+   * It stops for anybody's eyes, not only ours — so a friend watching the
    * corridor behind you is genuinely holding it still.
    */
   anyoneSees: function (m) {
