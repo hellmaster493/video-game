@@ -84,7 +84,8 @@ PP.Tex = {
 
   /* ── the surfaces ───────────────────────────────────────── */
   SIZES: { concrete: 512, checker: 512, wall: 512, ceiling: 512, metal: 512,
-           grate: 512, duct: 512, wood: 512, plush: 256, cloth: 256, porcelain: 512 },
+           grate: 512, duct: 512, wood: 512, plush: 256, cloth: 256, porcelain: 512,
+           greasepaint: 512, silk: 512 },
 
   build: function (name) {
     if (this.cache[name]) return this.cache[name];
@@ -329,6 +330,85 @@ PP.Tex = {
         break;
       }
 
+      case 'greasepaint': {              // white makeup laid over skin
+        this.fill(alb, '#e9e7e1'); this.fill(h, '#808080');
+        rough = this.cv(S);
+        var gr = rough.getContext('2d');
+        this.fill(rough, '#6e6e6e');       // greasepaint is satin, not matte
+        // the paint is not laid on evenly; skin tone comes through in patches
+        this.blobs(alb, rnd, 70, 18, 72, ['#f3f1ea', '#ddd8cd', '#e4dcd0'], 0.30);
+        this.blobs(rough, rnd, 50, 20, 80, ['#5a5a5a', '#8a8a8a'], 0.45);
+        // pores, which is most of what keeps skin from reading as plastic
+        for (i = 0; i < 9000; i++) {
+          var px4 = rnd() * S, py4 = rnd() * S, pr4 = 0.5 + rnd() * 1.1;
+          hh.fillStyle = 'rgba(0,0,0,' + (0.10 + rnd() * 0.22) + ')';
+          hh.beginPath(); hh.arc(px4, py4, pr4, 0, 6.2832); hh.fill();
+          if (rnd() < 0.25) {
+            a.fillStyle = 'rgba(176,164,150,.10)';
+            a.beginPath(); a.arc(px4, py4, pr4 * 1.4, 0, 6.2832); a.fill();
+          }
+        }
+        // fine creases, and the places the paint has dried and split
+        for (i = 0; i < 90; i++) {
+          var wx = rnd() * S, wy = rnd() * S, wa = rnd() * 6.2832;
+          var deep = rnd() < 0.22;
+          hh.strokeStyle = 'rgba(0,0,0,' + (deep ? 0.55 : 0.22) + ')';
+          hh.lineWidth = deep ? 1.6 : 0.9;
+          a.strokeStyle = 'rgba(150,136,122,' + (deep ? 0.30 : 0.10) + ')';
+          a.lineWidth = hh.lineWidth;
+          hh.beginPath(); a.beginPath();
+          hh.moveTo(wx, wy); a.moveTo(wx, wy);
+          for (var ws = 0; ws < 5; ws++) {
+            wa += (rnd() - 0.5) * 0.9;
+            wx += Math.cos(wa) * S * 0.03; wy += Math.sin(wa) * S * 0.03;
+            hh.lineTo(wx, wy); a.lineTo(wx, wy);
+          }
+          hh.stroke(); a.stroke();
+          if (deep) {                        // dried paint goes dull where it splits
+            gr.strokeStyle = 'rgba(190,190,190,.7)'; gr.lineWidth = 2.4;
+            gr.beginPath(); gr.moveTo(wx, wy); gr.lineTo(wx + 2, wy + 2); gr.stroke();
+          }
+        }
+        break;
+      }
+
+      case 'silk': {                       // the suit: fine weave, long creases
+        this.fill(alb, '#c2bfb4'); this.fill(h, '#808080');
+        rough = this.cv(S);
+        var sr = rough.getContext('2d');
+        this.fill(rough, '#4c4c4c');       // silk is far smoother than plush
+        // warp and weft, tight enough to read as sheen rather than as a grid
+        for (i = 0; i < S; i += 2) {
+          a.strokeStyle = 'rgba(255,255,255,.045)'; a.lineWidth = 1;
+          a.beginPath(); a.moveTo(i, 0); a.lineTo(i, S); a.stroke();
+          hh.strokeStyle = 'rgba(255,255,255,.16)';
+          hh.beginPath(); hh.moveTo(i, 0); hh.lineTo(i, S); hh.stroke();
+          hh.strokeStyle = 'rgba(0,0,0,.10)';
+          hh.beginPath(); hh.moveTo(0, i + 1); hh.lineTo(S, i + 1); hh.stroke();
+        }
+        // long soft folds, and the hard-pressed lines where it has been packed
+        for (i = 0; i < 26; i++) {
+          var fx2 = rnd() * S, fy2 = rnd() * S, fa2 = (rnd() - 0.5) * 1.1 + 1.57;
+          var hard = rnd() < 0.3, w2 = hard ? 2.2 : 7 + rnd() * 9;
+          hh.lineWidth = w2; a.lineWidth = w2;
+          hh.strokeStyle = 'rgba(' + (hard ? '0,0,0,.42' : '255,255,255,.14') + ')';
+          a.strokeStyle = hard ? 'rgba(120,116,106,.16)' : 'rgba(255,255,255,.06)';
+          hh.beginPath(); a.beginPath();
+          hh.moveTo(fx2, fy2); a.moveTo(fx2, fy2);
+          for (var fs = 0; fs < 4; fs++) {
+            fa2 += (rnd() - 0.5) * 0.35;
+            fx2 += Math.cos(fa2) * S * 0.28; fy2 += Math.sin(fa2) * S * 0.28;
+            hh.lineTo(fx2, fy2); a.lineTo(fx2, fy2);
+          }
+          hh.stroke(); a.stroke();
+          if (hard) {                        // a pressed crease has gone shiny
+            sr.strokeStyle = 'rgba(30,30,30,.8)'; sr.lineWidth = 3;
+            sr.beginPath(); sr.moveTo(fx2, fy2); sr.lineTo(fx2 + 3, fy2 + 3); sr.stroke();
+          }
+        }
+        break;
+      }
+
       case 'cloth':                        // staff overalls
         this.fill(alb, '#bcbcbc'); this.fill(h, '#8a8a8a');
         for (i = 0; i < S; i += 3) {
@@ -351,7 +431,8 @@ PP.Tex = {
 
     var set = {
       map: this.tex(alb),
-      normalMap: this.tex(this.normalFromHeight(h, name === 'carpet' ? 1.2 : name === 'plush' ? 2.0 : name === 'porcelain' ? 2.4 : 3.2)),
+      normalMap: this.tex(this.normalFromHeight(h, name === 'carpet' ? 1.2 : name === 'plush' ? 2.0 : name === 'porcelain' ? 2.4 : name === 'greasepaint' ? 1.5 :
+        name === 'silk' ? 1.1 : 3.2)),
       roughnessMap: rough ? this.tex(rough) : null
     };
     this.cache[name] = set;
@@ -682,7 +763,8 @@ PP.Tex = {
   mat: function (name, opts) {
     opts = opts || {};
     var set = this.build(name);
-    var Ctor = opts.sheen ? THREE.MeshPhysicalMaterial : THREE.MeshStandardMaterial;
+    var Ctor = (opts.sheen || opts.clearcoat) ? THREE.MeshPhysicalMaterial
+                                              : THREE.MeshStandardMaterial;
     var m = new Ctor({
       map: set.map.clone(),
       normalMap: set.normalMap.clone(),
@@ -705,6 +787,11 @@ PP.Tex = {
       m.sheen = opts.sheen;
       m.sheenRoughness = opts.sheenRoughness == null ? 0.85 : opts.sheenRoughness;
       m.sheenColor = new THREE.Color(opts.sheenColor == null ? 0xffffff : opts.sheenColor);
+    }
+    // a thin waxy layer over the diffuse — greasepaint, lacquer, wet skin
+    if (opts.clearcoat) {
+      m.clearcoat = opts.clearcoat;
+      m.clearcoatRoughness = opts.clearcoatRoughness == null ? 0.4 : opts.clearcoatRoughness;
     }
     m.normalScale = new THREE.Vector2(opts.normal == null ? 1 : opts.normal,
                                       opts.normal == null ? 1 : opts.normal);
