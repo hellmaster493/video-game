@@ -756,6 +756,7 @@ PP.Models = {
     var H = L.h * M;
     var rig = { root: g, height: H };
     var self = this;
+    var SX_HEAD = 0.87, SY_HEAD = 1.21;        // the skull is tall and narrow
 
     var silk  = this.silk(new THREE.Color(L.fur).getHex(), 0.32);      // the suit
     var trim  = this.silk(new THREE.Color(L.belly).getHex(), 0.44);    // ruff and cuffs
@@ -766,6 +767,19 @@ PP.Models = {
       color: new THREE.Color(L.paint).getHex(), roughness: 0.38, metalness: 0,
       repeat: 2.4, normal: 0.7, env: 0.25, clearcoat: 0.45, clearcoatRoughness: 0.38
     });
+    var face  = (function () {
+      var set = PP.Tex.clownFace({ skin: L.skin, paint: L.paint, lip: L.lipPaint,
+                                   sx: SX_HEAD, sy: SY_HEAD });
+      var m = new THREE.MeshPhysicalMaterial({
+        map: set.map.clone(), normalMap: set.normalMap.clone(),
+        roughnessMap: set.roughnessMap.clone(),
+        roughness: 1.0, metalness: 0.0,
+        clearcoat: 0.30, clearcoatRoughness: 0.48, envMapIntensity: 0.26
+      });
+      m.map.needsUpdate = m.normalMap.needsUpdate = m.roughnessMap.needsUpdate = true;
+      m.normalScale = new THREE.Vector2(1.0, 1.0);
+      return m;
+    })();
     var hair  = PP.Tex.mat('plush', {
       color: new THREE.Color(L.hair).getHex(), roughness: 0.62, metalness: 0,
       repeat: 3.0, normal: 1.3, env: 0.30,
@@ -807,16 +821,21 @@ PP.Models = {
       var parts = [];
       // kept coarse on purpose: a gathered edge is read from its outline, and
       // there are ten of these on him
-      var roll = new THREE.TorusGeometry(radius * 0.76, thick * 1.20, 6, 20);
+      var roll = new THREE.TorusGeometry(radius * 0.70, thick * 1.10, 6, 20);
       parts.push({ g: roll, m: self.xf(0, 0, 0, Math.PI / 2, 0, 0, 1, 1, 0.58) });
-      for (var i = 0; i < n; i++) {
-        var a = (i / n) * 6.2832;
-        var wob = Math.sin(i * 2.3) * 0.6 + Math.cos(i * 1.7) * 0.4;
-        var lobe = new THREE.SphereGeometry(thick * 1.95, 8, 6);
-        lobe.scale(1.0, 0.52, 1.32);            // flattened, lying in the disc
-        parts.push({ g: lobe,
-                     m: self.xf(Math.cos(a) * radius, droop * wob * thick,
-                                Math.sin(a) * radius, 0, -a, 0) });
+      // two rings of small folds running into each other, each one turned a
+      // little differently, so the edge breaks up instead of repeating
+      for (var ring = 0; ring < 2; ring++) {
+        var rr = radius * (1.0 - ring * 0.24), cnt = Math.round(n * (1.25 - ring * 0.30));
+        for (var i = 0; i < cnt; i++) {
+          var a = (i / cnt) * 6.2832 + ring * 0.4;
+          var wob = Math.sin(i * 2.3 + ring) * 0.6 + Math.cos(i * 1.7) * 0.4;
+          var lobe = new THREE.SphereGeometry(thick * (1.15 - ring * 0.12), 7, 5);
+          lobe.scale(1.0, 0.62, 1.55);          // flattened, lying in the disc
+          parts.push({ g: lobe,
+                       m: self.xf(Math.cos(a) * rr, droop * wob * thick * 0.5,
+                                  Math.sin(a) * rr, 0, -a, wob * 0.22) });
+        }
       }
       return self.mesh(self.merge(parts), mat);
     }
@@ -992,105 +1011,128 @@ PP.Models = {
     neck.add(head); rig.head = head;
     rig.headR = r;
 
-    var SX = 0.87, SY = 1.20;                  // the skull is tall and narrow
+    var SX = SX_HEAD, SY = SY_HEAD;
 
-    /** Where the skull's surface is, for anything painted or stuck onto it. */
-    function surf(x, y) {
-      var k = 1 - (y * y) / (r * SY * r * SY) - (x * x) / (r * SX * r * SX);
-      return k > 0.03 ? Math.sqrt(k) * r * SX : 0;
+    /**
+     * The face, as a field of radial displacements over the skull rather than
+     * a pile of spheres stuck to one. Each entry is a centre, a set of radii
+     * and a depth: positive pushes out (brow, nose, cheekbone, chin, lips),
+     * negative cuts in (eye socket, temple, the hollow under the cheekbone,
+     * the line between the lips). Concavities are the half you cannot get by
+     * adding geometry, and they are most of what makes a head a head.
+     */
+    var FACE = [
+      // x, y, z, rx, ry, rz, depth
+      [ 0.30,  0.37,  0.80, 0.34, 0.16, 0.90,  0.055],   // brow ridge
+      [-0.30,  0.37,  0.80, 0.34, 0.16, 0.90,  0.055],
+      [ 0.00,  0.34,  0.86, 0.15, 0.13, 0.80,  0.032],   // glabella
+      [ 0.34,  0.17,  0.82, 0.27, 0.22, 0.85, -0.080],   // eye socket
+      [-0.34,  0.17,  0.82, 0.27, 0.22, 0.85, -0.080],
+      [ 0.72,  0.44,  0.30, 0.30, 0.42, 0.80, -0.055],   // temple
+      [-0.72,  0.44,  0.30, 0.30, 0.42, 0.80, -0.055],
+      [ 0.00,  0.18,  0.90, 0.075, 0.27, 0.60, 0.055],   // bridge of the nose
+      [ 0.00, -0.03,  0.93, 0.115, 0.11, 0.50, 0.090],   // the tip
+      [ 0.115,-0.045, 0.89, 0.080, 0.080, 0.50, 0.050],  // the wings
+      [-0.115,-0.045, 0.89, 0.080, 0.080, 0.50, 0.050],
+      [ 0.00, -0.16,  0.93, 0.055, 0.080, 0.50, -0.032], // philtrum
+      [ 0.00, -0.30,  0.90, 0.35, 0.080, 0.55,  0.046],  // upper lip
+      [ 0.00, -0.375, 0.92, 0.37, 0.030, 0.55, -0.052],  // the line between
+      [ 0.00, -0.45,  0.89, 0.31, 0.090, 0.55,  0.050],  // lower lip
+      [ 0.00, -0.57,  0.88, 0.27, 0.055, 0.55, -0.036],  // mental crease
+      [ 0.00, -0.70,  0.85, 0.25, 0.18, 0.62,   0.060],  // chin
+      [ 0.46, -0.02,  0.70, 0.27, 0.18, 0.85,  0.058],   // cheekbone
+      [-0.46, -0.02,  0.70, 0.27, 0.18, 0.85,  0.058],
+      [ 0.40, -0.26,  0.78, 0.23, 0.16, 0.72, -0.048],   // the hollow under it
+      [-0.40, -0.26,  0.78, 0.23, 0.16, 0.72, -0.048],
+      [ 0.58, -0.50,  0.20, 0.23, 0.23, 0.75,  0.040],   // the angle of the jaw
+      [-0.58, -0.50,  0.20, 0.23, 0.23, 0.75,  0.040],
+      [ 0.56, -0.62,  0.40, 0.28, 0.30, 0.90, -0.050],   // and the taper below it
+      [-0.56, -0.62,  0.40, 0.28, 0.30, 0.90, -0.050],
+      [ 0.00,  0.86,  0.00, 1.00, 0.42, 1.00,  0.030],   // the dome of the cranium
+      [ 0.00,  0.10, -0.92, 0.60, 0.60, 0.40, -0.022]    // flatter at the back
+    ];
+    function faceField(px, py, pz) {
+      var d = 0;
+      for (var f = 0; f < FACE.length; f++) {
+        var F = FACE[f];
+        var a = (px - F[0]) / F[3], b = (py - F[1]) / F[4], c = (pz - F[2]) / F[5];
+        var q = a * a + b * b + c * c;
+        if (q < 1) d += F[6] * Math.pow(1 - q, 1.6);
+      }
+      return d;
     }
     /**
-     * Lay a painted line along a path across the face, one short segment at a
-     * time, each one sitting on the curve rather than floating in front of it.
-     * `path(t)` returns [x, y] for t from 0 to 1.
+     * Shape one piece of the head and give it the shared face map. The UVs run
+     * across the whole skull, not across the piece, so the dome and both jaw
+     * halves line up on one texture — the sphere's own seam is put at the back
+     * of the head, under the hair, where a wrapped UV cannot smear anything
+     * that matters.
      */
-    function line(parts, path, n, w, lift) {
-      var prev = null;
-      for (var i = 0; i <= n; i++) {
-        var p = path(i / n);
-        if (prev) {
-          var dx = p[0] - prev[0], dy = p[1] - prev[1];
-          var mx = (p[0] + prev[0]) / 2, my = (p[1] + prev[1]) / 2;
-          var z = surf(mx, my);
-          if (z) {
-            parts.push({ g: new THREE.BoxGeometry(w, Math.hypot(dx, dy) * 1.45, r * 0.05),
-                         m: self.xf(mx, my, z + (lift || r * 0.012), 0, 0,
-                                    Math.atan2(-dx, dy)) });
-          }
+    function sculptHead(geo, uvMode) {
+      var p = geo.attributes.position, uv = geo.attributes.uv;
+      for (var i = 0; i < p.count; i++) {
+        var x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+        var len = Math.hypot(x, y, z) || 1;
+        var nx = x / len, ny = y / len, nz = z / len;
+        // v always has to be the latitude on the WHOLE skull: a sphere built
+        // over part of a sweep maps that part across the entire map otherwise,
+        // and the face ends up stretched over the crown
+        if (uvMode) {
+          var vv = 0.5 + Math.asin(Math.max(-1, Math.min(1, ny))) / Math.PI;
+          if (uvMode > 1) {
+            var ph = Math.atan2(nz, -nx);
+            var u = (ph + Math.PI / 2) / 6.28318;
+            if (u < 0) u += 1;
+            uv.setXY(i, u, vv);
+          } else {
+            uv.setY(i, vv);                      // keep the sphere's own u: its
+          }                                      // seam is already at the back
         }
-        prev = p;
+        var sx = nx * SX, sy = ny * SY, sz = nz * SX;
+        var d = faceField(sx, sy, sz);
+        p.setXYZ(i, (sx + nx * d) * r, (sy + ny * d) * r, (sz + nz * d) * r);
       }
+      p.needsUpdate = true;
+      if (uvMode) uv.needsUpdate = true;
+      geo.computeVertexNormals();
+      return geo;
     }
-    /* ── the cranium, open below the mouth line, with a face on it ── */
-    var skull = [];
-    skull.push({ g: new THREE.SphereGeometry(r, 24, 20, 0, 6.2832, 0, Math.PI * 0.54),
-                 m: this.xf(0, 0, 0, 0, 0, 0, SX, SY, SX) });
-    // brow ridge: two shallow swells with the glabella between them. This is
-    // what puts the eyes in shadow, and shadowed eyes do most of the work.
-    [-1, 1].forEach(function (s) {
-      skull.push({ g: new THREE.SphereGeometry(r * 0.30, 16, 12),
-                   m: self.xf(s * r * 0.33, r * 0.50, surf(s * r * 0.33, r * 0.50) - r * 0.16,
-                              -0.25, s * 0.22, 0, 1.25, 0.52, 0.60) });
-      // the orbital rim carries on round under the eye as the top of the cheek
-      skull.push({ g: new THREE.SphereGeometry(r * 0.22, 14, 10),
-                   m: self.xf(s * r * 0.46, r * 0.30, surf(s * r * 0.46, r * 0.30) - r * 0.14,
-                              0, s * 0.45, s * 0.5, 0.75, 1.15, 0.55) });
-    });
-    skull.push({ g: new THREE.SphereGeometry(r * 0.17, 14, 10),
-                 m: this.xf(0, r * 0.46, surf(0, r * 0.46) - r * 0.10, 0, 0, 0, 1.0, 0.75, 0.55) });
-    // the nose: a bridge off the glabella, a ball of a tip, and two wings
-    skull.push({ g: new THREE.SphereGeometry(r * 0.105, 14, 10),
-                 m: this.xf(0, r * 0.30, surf(0, r * 0.30) - r * 0.015, 0, 0, 0, 0.78, 2.4, 1.15) });
-    var noseZ = surf(0, r * 0.06) + r * 0.055;
-    skull.push({ g: new THREE.SphereGeometry(r * 0.135, 16, 12),
-                 m: this.xf(0, r * 0.055, noseZ, 0, 0, 0, 1.0, 0.95, 1.05) });
-    [-1, 1].forEach(function (s) {
-      skull.push({ g: new THREE.SphereGeometry(r * 0.090, 12, 10),
-                   m: self.xf(s * r * 0.125, r * 0.020, noseZ - r * 0.045,
-                              0, 0, 0, 0.85, 0.85, 0.95) });
-    });
-    head.add(this.mesh(this.merge(skull), skin));
-    // the nostrils themselves, which are holes and so are the darkest thing here
-    var nostrils = [];
-    [-1, 1].forEach(function (s) {
-      nostrils.push({ g: new THREE.SphereGeometry(r * 0.042, 10, 8),
-                      m: self.xf(s * r * 0.072, r * 0.000, noseZ - r * 0.010,
-                                 0.5, 0, 0, 1, 0.7, 1.4) });
-    });
-    head.add(this.mesh(this.merge(nostrils), maw));
+
+    /* ── the cranium, cut off at the line between the lips ── */
+    var SPLIT = Math.PI * 0.605;                 // lands on the mouth
+    head.add(this.mesh(sculptHead(
+      new THREE.SphereGeometry(1, 72, 54, -Math.PI / 2, Math.PI * 2, 0, SPLIT), 1), face));
 
     /* ── hair: it only grows at the sides and the back, and it is going up ── */
     var hrnd = PP.rng(90210);
     var strands = [];
     [-1, 1].forEach(function (s) {
-      for (var c = 0; c < 9; c++) {                  // clumps, not single spikes
-        var ca = 0.62 + (c / 8) * 1.62;              // temple round to the back
-        var cx = s * Math.sin(ca) * r * 0.82 * SX;
-        var cz = Math.cos(ca) * r * 0.82 * SX;
-        var lean = 0.55 + hrnd() * 0.45;             // the clump shares a direction
-        var rise = 0.85 + hrnd() * 0.55;
-        for (var k = 0; k < 6; k++) {
+      for (var c = 0; c < 10; c++) {
+        var ca = 0.80 + (c / 11) * 1.50;           // temple round to the back
+        var cx = s * Math.sin(ca) * r * 0.80 * SX;
+        var cz = Math.cos(ca) * r * 0.80 * SX;
+        var lean = 0.55 + hrnd() * 0.45;           // the clump shares a direction
+        var rise = 0.95 + hrnd() * 0.55;
+        for (var k = 0; k < 20; k++) {
           var px = cx + (hrnd() - 0.5) * r * 0.26;
-          var py = r * (0.02 + hrnd() * 0.38);
+          var py = r * (0.44 + hrnd() * 0.40);     // the hairline sits high
           var pz = cz + (hrnd() - 0.5) * r * 0.26;
-          var len = r * (0.34 + hrnd() * 0.26);
-          // a lock is a flattened ribbon of hair, not a spine
-          var lk = new THREE.ConeGeometry(r * (0.135 + hrnd() * 0.070), len, 5);
-          lk.scale(1, 1, 0.60);
+          var len = r * (0.22 + hrnd() * 0.20);
+          var lk = new THREE.ConeGeometry(r * (0.052 + hrnd() * 0.044), len, 5);
+          lk.scale(1, 1, 0.58);
           strands.push(aimPart(lk, px, py, pz,
                                px * (lean + (hrnd() - 0.5) * 0.3),
                                r * rise,
-                               pz * (lean + (hrnd() - 0.5) * 0.3) - r * 0.18, len * 0.44));
+                               pz * (lean + (hrnd() - 0.5) * 0.3) - r * 0.20, len * 0.44));
         }
-        // a shorter layer underneath, laid back rather than up, for body
-        for (var u = 0; u < 5; u++) {
+        for (var u2 = 0; u2 < 8; u2++) {
           var ux = cx + (hrnd() - 0.5) * r * 0.30;
-          var uy = r * (-0.10 + hrnd() * 0.30);
+          var uy = r * (0.30 + hrnd() * 0.34);
           var uz = cz + (hrnd() - 0.5) * r * 0.30;
-          var ul = new THREE.ConeGeometry(r * (0.145 + hrnd() * 0.065), r * (0.22 + hrnd() * 0.18), 5);
+          var ul = new THREE.ConeGeometry(r * (0.080 + hrnd() * 0.048), r * (0.22 + hrnd() * 0.20), 5);
           ul.scale(1, 1, 0.55);
           strands.push(aimPart(ul, ux, uy, uz,
-                               ux * 1.30, r * (0.30 + hrnd() * 0.3), uz * 1.30 - r * 0.55,
+                               ux * 1.20, r * (0.34 + hrnd() * 0.3), uz * 1.20 - r * 0.26,
                                r * 0.14));
         }
       }
@@ -1098,21 +1140,12 @@ PP.Models = {
     head.add(this.mesh(this.merge(strands), hair));
 
     /* ── the eyes, which do not blink and do not quite agree ── */
-    var lidMat = skin;
-    rig.eyes = this.eyes(r * 0.205, L.eye, r * 0.36, r * 0.660, r * 0.285, true, lidMat);
+    rig.eyes = this.eyes(r * 0.200, L.eye, r * 0.340, r * 0.700, r * 0.180, true, skin);
     rig.eyes.children.forEach(function (e) {        // this face does not blink
-      if (e.lid) { e.lid.rotation.x = -1.34; e.lid.scale.setScalar(0.96); }
-      if (e.lowLid) { e.lowLid.rotation.x = 0.88; e.lowLid.scale.setScalar(0.96); }
+      if (e.lid) { e.lid.rotation.x = -1.52; e.lid.scale.setScalar(0.90); }
+      if (e.lowLid) { e.lowLid.rotation.x = 1.06; e.lowLid.scale.setScalar(0.90); }
     });
     head.add(rig.eyes);
-    // the hollow the eye sits in: a darker ring, so the ball reads as set back
-    var orbits = [];
-    [-1, 1].forEach(function (s) {
-      orbits.push({ g: new THREE.TorusGeometry(r * 0.265, r * 0.040, 8, 20),
-                    m: self.xf(s * r * 0.37, r * 0.285, surf(s * r * 0.37, r * 0.285) - r * 0.145,
-                               0, s * 0.16, 0, 1, 1, 0.40) });
-    });
-    head.add(this.mesh(this.merge(orbits), shade));
 
     // the deadlights: nothing at all until the moment it stops pretending
     rig.deadlights = new THREE.Group();
@@ -1121,8 +1154,8 @@ PP.Models = {
       blending: THREE.AdditiveBlending, depthWrite: false
     });
     for (var dl = -1; dl <= 1; dl += 2) {
-      var sp = this.mesh(new THREE.SphereGeometry(r * 0.21, 14, 10), glowMat);
-      sp.position.set(dl * r * 0.36, r * 0.285, r * 0.76);
+      var sp = this.mesh(new THREE.SphereGeometry(r * 0.205, 14, 10), glowMat);
+      sp.position.set(dl * r * 0.340, r * 0.180, r * 0.76);
       sp.castShadow = false; sp.receiveShadow = false;
       rig.deadlights.add(sp);
     }
@@ -1130,32 +1163,14 @@ PP.Models = {
     rig.deadlights.visible = false;
     head.add(rig.deadlights);
 
-    /* ── eyebrows: sparse, pale, and painted straight through ── */
-    var brows = [];
+    // the nostrils, which are holes and so are the darkest thing on the face
+    var nostrils = [];
     [-1, 1].forEach(function (s) {
-      for (var bw = 0; bw < 16; bw++) {
-        var f = bw / 15;
-        var bx = s * r * (0.16 + f * 0.38), by = r * (0.47 + Math.sin(f * 2.6) * 0.055);
-        var bg = new THREE.ConeGeometry(r * 0.030, r * (0.12 - f * 0.035), 5);
-        bg.scale(1, 1, 0.5);
-        brows.push(aimPart(bg, bx, by, surf(bx, by) + r * 0.008,
-                           s * 0.85, 0.30, 0.85, r * 0.035));
-      }
+      nostrils.push({ g: new THREE.SphereGeometry(r * 0.046, 10, 8),
+                      m: self.xf(s * r * 0.072, -r * 0.098, r * 0.845,
+                                 0.55, 0, 0, 1, 0.65, 1.3) });
     });
-    head.add(this.mesh(this.merge(brows), hair));
-
-    /* ── the three red threads: down the brow, then through each eye ── */
-    var marks = [];
-    line(marks, function (t) { return [0, r * (1.06 - t * 0.44)]; }, 7, r * 0.062);
-    [-1, 1].forEach(function (s) {
-      line(marks, function (t) {
-        return [s * r * 0.36 * t, r * (0.62 - t * 0.31)];        // out to the eye
-      }, 6, r * 0.058);
-      line(marks, function (t) {
-        return [s * r * (0.36 + t * 0.07), r * (0.285 - t * 0.32)];
-      }, 5, r * 0.058);
-    });
-    head.add(this.mesh(this.merge(marks), paint));
+    head.add(this.mesh(this.merge(nostrils), maw));
 
     /* ── the lower face, hinged down the midline ───────────────────────────
        THREE's phiStart runs round Y, so the +X half of a sphere is the sweep
@@ -1165,90 +1180,35 @@ PP.Models = {
     head.add(rig.jawL); head.add(rig.jawR);
     [[rig.jawL, Math.PI * 0.5, 1], [rig.jawR, -Math.PI * 0.5, -1]].forEach(function (half) {
       var grp = half[0], phi = half[1], side = half[2];
-
-      var shell = [];
-      shell.push({ g: new THREE.SphereGeometry(r, 20, 16, phi, Math.PI,
-                                               Math.PI * 0.54, Math.PI * 0.46),
-                   m: self.xf(0, 0, 0, 0, 0, 0, SX, SY, SX) });
-      // cheekbone, running from beside the nose out and back to the ear
-      shell.push({ g: new THREE.SphereGeometry(r * 0.30, 16, 12, phi, Math.PI),
-                   m: self.xf(side * r * 0.40, -r * 0.09,
-                              surf(side * r * 0.40, -r * 0.09) - r * 0.13,
-                              0, side * 0.55, side * 0.30, 1.35, 0.70, 0.75) });
-      // the jaw itself: an edge from under the ear forward to the chin
-      shell.push({ g: new THREE.SphereGeometry(r * 0.26, 14, 10, phi, Math.PI),
-                   m: self.xf(side * r * 0.40, -r * 0.62, -r * 0.02,
-                              0.20, side * 0.35, side * 0.25, 1.05, 0.80, 1.55) });
-      // and the chin, with the crease above it that separates it from the lip
-      shell.push({ g: new THREE.SphereGeometry(r * 0.30, 16, 12, phi, Math.PI),
-                   m: self.xf(side * r * 0.10, -r * 0.72, r * 0.34,
-                              0, 0, 0, 1.25, 1.05, 0.95) });
-      // the upper lip, which has a body to it rather than being a painted line
-      shell.push({ g: new THREE.SphereGeometry(r * 0.115, 14, 10, phi, Math.PI),
-                   m: self.xf(side * r * 0.13, -r * 0.345,
-                              surf(side * r * 0.13, -r * 0.345) + r * 0.010,
-                              0, 0, side * 0.30, 1.9, 0.72, 0.9) });
-      // the lower lip, fuller, and set a little behind the upper
-      shell.push({ g: new THREE.SphereGeometry(r * 0.115, 14, 10, phi, Math.PI),
-                   m: self.xf(side * r * 0.11, -r * 0.475,
-                              surf(side * r * 0.11, -r * 0.475) + r * 0.004,
-                              0, 0, side * 0.12, 1.7, 0.80, 1.0) });
-      grp.add(self.mesh(self.merge(shell), skin));
-
-      // the fold from the nose wing down past the corner of the mouth
-      var creases = [];
-      line(creases, function (t) {
-        return [side * r * (0.16 + t * 0.26), -r * (0.14 + t * 0.42)];
-      }, 5, r * 0.035, -r * 0.004);
-      grp.add(self.mesh(self.merge(creases), shade));
-
-      // the line between the lips, which is a gap and so reads dark
-      var gap = self.mesh(new THREE.SphereGeometry(r * 0.11, 14, 8, phi, Math.PI), maw);
-      gap.scale.set(1.75, 0.16, 0.5);
-      gap.position.set(side * r * 0.12, -r * 0.410,
-                       surf(side * r * 0.12, -r * 0.410) - r * 0.020);
-      grp.add(gap);
-
-      var red = [];
-      // the thread carries on down the cheek, so it splits with the face
-      line(red, function (t) {
-        return [side * r * (0.43 + t * 0.05), -r * (0.03 + t * 0.66)];
-      }, 7, r * 0.058);
-      // the grin painted over the lips: low in the middle, flicked up hard
-      line(red, function (t) {
-        return [side * r * 0.50 * t, -r * (0.41 - t * t * 0.26)];
-      }, 9, r * 0.072, r * 0.030);
-      line(red, function (t) {
-        return [side * r * (0.50 + t * 0.03), -r * (0.15 - t * 0.25)];
-      }, 4, r * 0.055);
-      grp.add(self.mesh(self.merge(red), paint));
+      grp.add(self.mesh(sculptHead(
+        new THREE.SphereGeometry(1, 36, 30, phi, Math.PI, SPLIT, Math.PI - SPLIT), 2), face));
 
       // the overbite, sitting on the lower lip the way it actually does
       var teeth = [];
       for (var tt = 0; tt < 3; tt++) {
-        var tw = tt === 0 ? r * 0.105 : r * 0.072;
-        var tx = side * (tt === 0 ? r * 0.055 : r * (0.125 + (tt - 1) * 0.070));
-        teeth.push({ g: new THREE.BoxGeometry(tw, r * (0.26 - tt * 0.05), r * 0.075),
-                     m: self.xf(tx, -r * (0.40 + tt * 0.012),
-                                surf(tx, -r * 0.40) - r * 0.012, 0.10, 0, side * tt * 0.07) });
+        var tw = tt === 0 ? r * 0.100 : r * 0.068;
+        var tx = side * (tt === 0 ? r * 0.052 : r * (0.118 + (tt - 1) * 0.066));
+        teeth.push({ g: new THREE.BoxGeometry(tw, r * (0.215 - tt * 0.045), r * 0.070),
+                     m: self.xf(tx, -r * (0.405 + tt * 0.012), r * (0.790 - tt * 0.030),
+                                0.12, 0, side * tt * 0.07) });
       }
       grp.add(self.mesh(self.merge(teeth), bone));
     });
 
     /* ── and what the face is covering ── */
-    var inner = this.mesh(new THREE.SphereGeometry(r * 0.82, 16, 12), maw);
-    inner.scale.set(0.92, 1.12, 0.92);
-    inner.position.y = -r * 0.16;
+    var inner = this.mesh(new THREE.SphereGeometry(r * 0.80, 16, 12), maw);
+    inner.scale.set(0.88, 1.10, 0.90);
+    inner.position.y = -r * 0.34;
     head.add(inner);
     var fangs = [];
     for (var ring = 0; ring < 3; ring++) {
-      var rr = r * (0.66 - ring * 0.15), n2 = 18 - ring * 4;
+      var rr = r * (0.62 - ring * 0.14), n2 = 18 - ring * 4;
       for (var t2 = 0; t2 < n2; t2++) {
         var fa = (t2 / n2) * 6.2832;
-        fangs.push({ g: new THREE.ConeGeometry(r * (0.054 - ring * 0.008),
-                                               r * (0.44 - ring * 0.08), 5),
-                     m: this.xf(Math.cos(fa) * rr, -r * 0.16 + Math.sin(fa) * rr * 1.05,
-                                r * (0.34 - ring * 0.16), Math.PI / 2 + 0.42, 0, 0) });
+        fangs.push({ g: new THREE.ConeGeometry(r * (0.052 - ring * 0.008),
+                                               r * (0.42 - ring * 0.08), 5),
+                     m: this.xf(Math.cos(fa) * rr, -r * 0.34 + Math.sin(fa) * rr * 1.05,
+                                r * (0.32 - ring * 0.15), Math.PI / 2 + 0.42, 0, 0) });
       }
     }
     head.add(this.mesh(this.merge(fangs), bone));

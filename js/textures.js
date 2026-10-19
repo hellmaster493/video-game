@@ -507,6 +507,232 @@ PP.Tex = {
    * pupil. One mesh per eye instead of four, and it reads far better than
    * stacked spheres.
    */
+  /**
+   * A face, painted rather than assembled. The big forms come from the sculpt
+   * in models.js; this is everything a sculpt cannot give you — greasepaint
+   * laid on unevenly, the red design, the lips, the pores, and above all the
+   * shadow under the brow and beneath the cheekbones. Baked shadow is most of
+   * what separates a head from a ball.
+   *
+   * Drawn in FACE space: x and y in units of the head radius, (0,0) between
+   * the eyes, +y up, +x the character's left. `uvp` projects that onto the
+   * sphere's own UV, so the front of the head sits at u = 0.5.
+   */
+  clownFace: function (o) {
+    var key = 'face' + o.skin + o.paint + o.lip;
+    if (this.cache[key]) return this.cache[key];
+    var W = 1536, Hh = 768;
+    var rnd = PP.rng(606060);
+
+    function pad(w, h) {
+      var c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      return c;
+    }
+    var alb = pad(W, Hh), hgt = pad(W, Hh), rgh = pad(W, Hh);
+    var a = alb.getContext('2d'), h = hgt.getContext('2d'), g = rgh.getContext('2d');
+
+    a.fillStyle = o.skin; a.fillRect(0, 0, W, Hh);
+    h.fillStyle = '#808080'; h.fillRect(0, 0, W, Hh);
+    g.fillStyle = '#6a6a6a'; g.fillRect(0, 0, W, Hh);   // greasepaint is satin
+
+    /* ── face space → the sphere's UV ──
+       The face is laid out on the SCALED skull, so the ellipsoid has to come
+       back out before the direction means anything to the sphere's UV. */
+    var SX = o.sx || 1, SY = o.sy || 1;
+    function uvp(x, y) {
+      var ny = Math.max(-0.995, Math.min(0.995, y / SY));
+      var phi = Math.asin(ny);
+      var cp = Math.max(0.20, Math.cos(phi));
+      var nx = Math.max(-0.995, Math.min(0.995, (x / SX) / cp));
+      return [(0.5 + Math.asin(nx) / 6.28318) * W, (0.5 - phi / Math.PI) * Hh];
+    }
+    /** A soft ellipse in face space — shadow, blush, a smudge of paint. */
+    function smudge(ctx, x, y, rx, ry, col, alpha, rot) {
+      var c = uvp(x, y), e = uvp(x + rx, y), f = uvp(x, y + ry);
+      var pw = Math.abs(e[0] - c[0]) || 2, ph = Math.abs(f[1] - c[1]) || 2;
+      ctx.save();
+      ctx.translate(c[0], c[1]);
+      if (rot) ctx.rotate(rot);
+      ctx.scale(pw, ph);
+      var grd = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+      grd.addColorStop(0, col.replace('ALPHA', alpha));
+      grd.addColorStop(0.55, col.replace('ALPHA', alpha * 0.55));
+      grd.addColorStop(1, col.replace('ALPHA', 0));
+      ctx.fillStyle = grd;
+      ctx.beginPath(); ctx.arc(0, 0, 1, 0, 6.2832); ctx.fill();
+      ctx.restore();
+    }
+    /** A stroke that follows a path given in face space. */
+    function fstroke(ctx, path, n, width, style, cap) {
+      ctx.save();
+      ctx.strokeStyle = style;
+      ctx.lineWidth = width;
+      ctx.lineCap = cap || 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      for (var i = 0; i <= n; i++) {
+        var p = path(i / n), q = uvp(p[0], p[1]);
+        i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    /* ── 1. the paint is not laid on evenly, and it stops at the jaw ── */
+    for (var i = 0; i < 90; i++) {
+      smudge(a, (rnd() - 0.5) * 1.8, (rnd() - 0.5) * 1.8,
+             0.10 + rnd() * 0.22, 0.10 + rnd() * 0.22,
+             rnd() < 0.5 ? 'rgba(255,253,247,ALPHA)' : 'rgba(205,196,183,ALPHA)',
+             0.10 + rnd() * 0.16);
+    }
+    // the skin the makeup never reached, round the edge of the face
+    smudge(a, 0, -1.05, 1.5, 0.42, 'rgba(176,150,136,ALPHA)', 0.55);
+    smudge(a, 0, 1.12, 1.5, 0.40, 'rgba(182,158,142,ALPHA)', 0.35);
+
+    /* ── 2. the shadow. This is the part that makes it a head ── */
+    var SH = 'rgba(92,78,76,ALPHA)';
+    [-1, 1].forEach(function (s) {
+      smudge(a, s * 0.34, 0.17, 0.30, 0.24, SH, 0.34);          // the socket
+      smudge(a, s * 0.34, 0.31, 0.26, 0.09, SH, 0.46);          // under the brow
+      smudge(a, s * 0.12, 0.12, 0.09, 0.18, SH, 0.30);          // beside the nose
+      smudge(a, s * 0.46, -0.20, 0.26, 0.13, SH, 0.34, s * 0.3); // under the cheek
+      smudge(a, s * 0.70, 0.42, 0.18, 0.30, SH, 0.30);          // the temple
+      smudge(a, s * 0.66, -0.46, 0.20, 0.22, SH, 0.26);         // the jaw
+    });
+    smudge(a, 0, -0.10, 0.17, 0.07, SH, 0.42);                  // under the nose
+    smudge(a, 0, -0.52, 0.26, 0.09, SH, 0.40);                  // under the lip
+    smudge(a, 0, -0.86, 0.34, 0.16, SH, 0.45);                  // under the chin
+    // and the light that is left: brow, nose, cheekbones, chin
+    var LT = 'rgba(255,255,252,ALPHA)';
+    [-1, 1].forEach(function (s) {
+      smudge(a, s * 0.32, 0.40, 0.20, 0.09, LT, 0.34);
+      smudge(a, s * 0.44, -0.04, 0.17, 0.11, LT, 0.30);
+    });
+    smudge(a, 0, 0.12, 0.07, 0.22, LT, 0.40);
+    smudge(a, 0, -0.03, 0.09, 0.07, LT, 0.45);
+    smudge(a, 0, -0.70, 0.16, 0.10, LT, 0.30);
+    smudge(a, 0, 0.72, 0.42, 0.26, LT, 0.26);
+
+    /* ── 3. the red design ── */
+    var RED = o.paint;
+    // down the middle of the forehead
+    fstroke(a, function (t) { return [0, 1.02 - t * 0.56]; }, 10, 15, RED);
+    [-1, 1].forEach(function (s) {
+      // out through the eye, then on down past the jaw
+      fstroke(a, function (t) {
+        var e = t * t;
+        return [s * (0.34 * e), 0.46 - t * 0.29];
+      }, 14, 14, RED);
+      fstroke(a, function (t) {
+        return [s * (0.34 + t * 0.14), 0.17 - t * 0.92];
+      }, 14, 13, RED);
+    });
+    // the grin: low in the middle, flicked up hard past the cheekbone
+    fstroke(a, function (t) {
+      var x = (t - 0.5) * 2;
+      return [x * 0.63, -0.37 + x * x * 0.26];
+    }, 30, 18, RED);
+    [-1, 1].forEach(function (s) {
+      fstroke(a, function (t) {
+        return [s * (0.63 + t * 0.04), -0.11 + t * 0.34];
+      }, 8, 14, RED);
+    });
+
+    /* ── 4. the lips under it ── */
+    for (var li = 0; li < 2; li++) {
+      var lipCol = li ? o.lip : 'rgba(150,54,58,0.55)';
+      fstroke(a, function (t) {
+        var x = (t - 0.5) * 2;
+        return [x * 0.40, -0.335 + x * x * 0.14];
+      }, 24, li ? 13 : 24, lipCol);
+      fstroke(a, function (t) {
+        var x = (t - 0.5) * 2;
+        return [x * 0.36, -0.425 + x * x * 0.12];
+      }, 24, li ? 15 : 26, lipCol);
+    }
+    // the gap between them is a gap, so it is the darkest thing on the face
+    fstroke(a, function (t) {
+      var x = (t - 0.5) * 2;
+      return [x * 0.38, -0.383 + x * x * 0.13];
+    }, 24, 7, 'rgba(34,14,18,0.85)');
+    fstroke(h, function (t) {
+      var x = (t - 0.5) * 2;
+      return [x * 0.38, -0.383 + x * x * 0.13];
+    }, 24, 9, 'rgba(0,0,0,0.75)');
+    // lips are wet; the rest of the face is not
+    [-0.335, -0.425].forEach(function (yy) {
+      fstroke(g, function (t) {
+        var x = (t - 0.5) * 2;
+        return [x * 0.38, yy + x * x * 0.13];
+      }, 24, 22, 'rgba(26,26,26,0.9)');
+    });
+
+    /* ── 5. pores, and the places the paint has dried and split ── */
+    for (i = 0; i < 70000; i++) {
+      var pu = rnd() * W, pv = rnd() * Hh, pr = 0.45 + rnd() * 0.85;
+      h.fillStyle = 'rgba(0,0,0,' + (0.05 + rnd() * 0.14) + ')';
+      h.beginPath(); h.arc(pu, pv, pr, 0, 6.2832); h.fill();
+      if (rnd() < 0.18) {
+        a.fillStyle = 'rgba(168,152,142,.05)';
+        a.beginPath(); a.arc(pu, pv, pr * 1.5, 0, 6.2832); a.fill();
+      }
+    }
+    for (i = 0; i < 520; i++) {
+      var cx = rnd() * W, cy = rnd() * Hh, ca = rnd() * 6.2832;
+      var deep = rnd() < 0.25;
+      h.strokeStyle = 'rgba(0,0,0,' + (deep ? 0.30 : 0.11) + ')';
+      h.lineWidth = deep ? 2.0 : 1.0;
+      a.strokeStyle = 'rgba(146,130,118,' + (deep ? 0.13 : 0.05) + ')';
+      a.lineWidth = h.lineWidth;
+      h.beginPath(); a.beginPath();
+      h.moveTo(cx, cy); a.moveTo(cx, cy);
+      for (var sg = 0; sg < 5; sg++) {
+        ca += (rnd() - 0.5) * 1.0;
+        cx += Math.cos(ca) * 9; cy += Math.sin(ca) * 9;
+        h.lineTo(cx, cy); a.lineTo(cx, cy);
+      }
+      h.stroke(); a.stroke();
+    }
+    var set = {
+      map: this.tex(alb),
+      normalMap: this.tex(this.normalRect(hgt, 0.45)),
+      roughnessMap: this.tex(rgh)
+    };
+    set.map.wrapS = set.map.wrapT = THREE.RepeatWrapping;
+    this.cache[key] = set;
+    return set;
+  },
+
+  /** normalFromHeight, for a canvas that is not square. */
+  normalRect: function (hc, strength) {
+    var w = hc.width, hh = hc.height;
+    var src = hc.getContext('2d').getImageData(0, 0, w, hh).data;
+    var out = document.createElement('canvas'); out.width = w; out.height = hh;
+    var ctx = out.getContext('2d'), img = ctx.createImageData(w, hh), d = img.data;
+    function at(x, y) {
+      x = (x + w) % w;
+      y = y < 0 ? 0 : y >= hh ? hh - 1 : y;
+      return src[(y * w + x) * 4] / 255;
+    }
+    for (var y = 0; y < hh; y++) {
+      for (var x = 0; x < w; x++) {
+        var dx = (at(x - 1, y - 1) + 2 * at(x - 1, y) + at(x - 1, y + 1))
+               - (at(x + 1, y - 1) + 2 * at(x + 1, y) + at(x + 1, y + 1));
+        var dy = (at(x - 1, y - 1) + 2 * at(x, y - 1) + at(x + 1, y - 1))
+               - (at(x - 1, y + 1) + 2 * at(x, y + 1) + at(x + 1, y + 1));
+        var nx = dx * strength, ny = dy * strength, len = Math.hypot(nx, ny, 1);
+        var i = (y * w + x) * 4;
+        d[i] = ((nx / len) * 0.5 + 0.5) * 255;
+        d[i + 1] = ((ny / len) * 0.5 + 0.5) * 255;
+        d[i + 2] = ((1 / len) * 0.5 + 0.5) * 255;
+        d[i + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    return out;
+  },
+
   eyeTex: function (iris) {
     var key = 'eye' + iris;
     if (this.cache[key]) return this.cache[key];

@@ -105,7 +105,8 @@ PP.MONSTERS = [
     specialText: 'Frozen the moment you look at it. Turn away, and it closes the whole gap.',
     speed: 96, sense: 900, hearing: 300, vent: false, reach: 74, patience: 99, silent: true,
     look: { fur: '#a8a496', belly: '#ded7c3', eye: '#cdae74', lip: '#6e1f22',
-            skin: '#e3e4df', paint: '#b4222a', hair: '#c8622a', balloon: '#d21d26',
+            skin: '#e6e4dd', paint: '#bb1f26', lipPaint: '#7e1a20',
+            hair: '#c8622a', balloon: '#d21d26',
             h: 2.45, leg: 0.46, torso: 0.28, tr: 0.082, head: 0.070, arm: 0.34,
             limbR: 0.028, teeth: 'buck' }
   },
